@@ -27,22 +27,22 @@ public class ClientTest {
 	protected String configImproperFirstLine = "./configImproperFirstLine";
 	protected String configImproperNeighbor = "./configImproperNeighbor";
 	protected Client clientThreeNeighbors = new Client(60.0,
-			configThreeNeighbors, 39131);;
+			configThreeNeighbors, 39131, true);
 	protected Client clientNoNeighbors = new Client(31.3, configNoNeighbors,
-			43133);;
+			43133, true);
 
 	@Test
 	public void testConstructor() {
 		try {
 			Client clientImproperFirstLine = new Client(93.331,
-					configImproperFirstLine, 38813);
+					configImproperFirstLine, 38813, true);
 			fail();
 		} catch (IllegalArgumentException e) {
 		}
 
 		try {
 			Client clientImproperNeighbor = new Client(381.3,
-					configImproperNeighbor, 19931);
+					configImproperNeighbor, 19931, true);
 			fail();
 		} catch (IllegalArgumentException e) {
 		}
