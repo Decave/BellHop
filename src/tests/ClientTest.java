@@ -22,13 +22,16 @@ import client.Client;
 public class ClientTest {
 
 	protected String configLoadNormal = "./configLoadNormal";
-	
+
 	/*
 	 * Contains the following neighbors:
 	 * 74.73.139.233:7881 1.4
 	 * 74.73.139.231:6661 2.3
 	 * 74.73.139.228:3131 10.0
 	 */
+	protected String neighbor1 = "74.73.139.233:7881";
+	protected String neighbor2 = "74.73.139.231:6661";
+	protected String neighbor3 = "74.73.139.228:3131";
 	protected String configThreeNeighbors = "./configThreeNeighbors";
 	protected String configNoNeighbors = "./configNoNeighbors";
 	protected String configImproperFirstLine = "./configImproperFirstLine";
@@ -160,44 +163,103 @@ public class ClientTest {
 		} catch (IllegalArgumentException e) {
 		}
 	}
-	
+
 	@Test
 	public void testLinkdown() {
 		/* Client neighbors:
 		74.73.139.233:7881 1.4
 		74.73.139.231:6661 2.3
 		74.73.139.228:3131 10.0
-		*/
+		 */
+
+		/*
+		 * Test that method with incorrect parameters won't tear down links 
+		 * or change weight, and return false.
+		 */
 		assertFalse(clientThreeNeighbors.linkdown("74.73.139.668", 3134));
 		assertFalse(clientThreeNeighbors.linkdown("74.73.139.223", 7881));
 		assertFalse(clientThreeNeighbors.linkdown("74.73.139.233", 6661));
+		assertFalse(clientThreeNeighbors.hasLink("74.73.139.668:3134"));
+		assertTrue(clientThreeNeighbors.hasLink(neighbor1));
+		assertTrue(clientThreeNeighbors.hasLink(neighbor2));
+		assertTrue(clientThreeNeighbors.hasLink(neighbor3));
+
+		/*
+		 * Test that client with no neighbors gets false when tearing link 
+		 * down.
+		 */
 		assertFalse(clientNoNeighbors.linkdown("74.73.139.228", 3131));
-		
+
+		/*
+		 * Test that correct linkdown changes weight and returns true
+		 */
 		assertTrue(clientThreeNeighbors
-				.getDistanceVector()
-				.get("74.73.139.233:7881")
-				== 1.4);
+				.distanceVectorHasWeight(neighbor1, 1.4));
+		assertTrue(clientThreeNeighbors
+				.distanceVectorHasWeight(neighbor2, 2.3));
+		assertTrue(clientThreeNeighbors
+				.distanceVectorHasWeight(neighbor3, 10.0));
+		assertTrue(clientThreeNeighbors.linkdown("74.73.139.228", 3131));
+		assertTrue(clientThreeNeighbors
+				.distanceVectorHasWeight(neighbor1, 1.4));
+		assertTrue(clientThreeNeighbors
+				.distanceVectorHasWeight(neighbor2, 2.3));
+		assertTrue(clientThreeNeighbors
+				.distanceVectorHasWeight(neighbor3, Double.POSITIVE_INFINITY));
 		assertTrue(clientThreeNeighbors.linkdown("74.73.139.233", 7881));
+		assertTrue(clientThreeNeighbors.hasLink("74.73.139.233:7881"));
 		assertTrue(clientThreeNeighbors
-				.getDistanceVector()
-				.containsKey("74.73.139.233:7881"));
+				.distanceVectorHasWeight(neighbor1, Double.POSITIVE_INFINITY));
+		assertTrue(clientThreeNeighbors.hasLink("74.73.139.231:6661"));
 		assertTrue(clientThreeNeighbors
-				.getDistanceVector()
-				.get("74.73.139.233:7881")
-				== Double.POSITIVE_INFINITY);
+				.distanceVectorHasWeight(neighbor2, 2.3));
+		assertTrue(clientThreeNeighbors.hasLink("74.73.139.228:3131"));
 		assertTrue(clientThreeNeighbors
-				.getDistanceVector()
-				.containsKey("74.73.139.231:6661"));
+				.distanceVectorHasWeight(neighbor3, Double.POSITIVE_INFINITY));
+
+		/*
+		 * Reset clientThreeNeighbors
+		 */
+		clientThreeNeighbors.linkup("74.73.139.233", 7881, 1.4);
+		clientThreeNeighbors.linkup("74.73.139.228", 3131, 10.0);
+	}
+
+	@Test
+	public void testLinkup() {
+		/* Client neighbors:
+		74.73.139.233:7881 1.4
+		74.73.139.231:6661 2.3
+		74.73.139.228:3131 10.0
+		 */
+
+		/*
+		 * First test that a client can't linkup a link that isn't down yet 
+		 * or a link that isn't in the client's distance vector
+		 */
+		assertFalse(clientThreeNeighbors.linkup(neighbor1, 7881, 10.3));
+		assertFalse(clientThreeNeighbors.linkup("74.73.139.553", 3, 9.1));
+
+		/*
+		 * Next, test that a downed link can be linkup'd with a new weight, 
+		 * and assert that the new weight is correct.
+		 */
 		assertTrue(clientThreeNeighbors
-				.getDistanceVector()
-				.get("74.73.139.231:6661")
-				== 2.3);
-		assertTrue(clientThreeNeighbors
-				.getDistanceVector()
-				.containsKey("74.73.139.228:3131"));
-		assertTrue(clientThreeNeighbors
-				.getDistanceVector()
-				.get("74.73.139.228:3131")
-				== 10.0);
+				.distanceVectorHasWeight(neighbor1, 1.4));
+		clientThreeNeighbors.linkdown("74.73.139.233", 7881);
+		assertTrue(clientThreeNeighbors.linkup("74.73.139.233", 7881, 8.911));
+
+		/*
+		 * Test that a client with no neighbors can't linkup a link, even after
+		 * it has been linked down, because it is not in the distance vector.
+		 */
+		clientNoNeighbors.linkdown("74.73.139.228", 3131);
+		assertFalse(clientNoNeighbors.linkup("74.73.139.228", 3131, 9.31));
+
+		/*
+		 * Reset client (and test that a link can be downed and upped more 
+		 * than once):
+		 */
+		clientThreeNeighbors.linkdown("74.73.139.233", 7881);
+		assertTrue(clientThreeNeighbors.linkup("74.73.139.233", 7881, 1.4));
 	}
 }
