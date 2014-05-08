@@ -142,25 +142,31 @@ public class Client {
 	}
 
 	/**
-	 * Given a 
+	 * Given an IP address and port, if this Client has a neighbor
+	 * in their distance vector with a key corresponding to IP:Port, 
+	 * set the weight of that link to Double.POSITIVE_INFINITY.
 	 * 
 	 * @param linkIP
 	 * @param linkPort
-	 * @return
+	 * @return True if link exists and is dropped, false if it does not exist.
 	 * @throws IllegalArgumentException
 	 */
 	public boolean linkdown(String linkIP, int linkPort)
 			throws IllegalArgumentException {
-		if (linkIP == null || linkIP.equals("") || linkPort <= 0) {
-			throw new IllegalArgumentException();
-		}
+		synchronized(this.distanceVectorLock) {
+			if (linkIP == null || linkIP.equals("") || linkPort <= 0) {
+				throw new IllegalArgumentException();
+			}
 
-		if (!this.distanceVector.containsKey(linkIP)) {
-			return false;
-		}
+			String ipPort = linkIP + ":" + linkPort;
+			
+			if (!this.distanceVector.containsKey(ipPort)) {
+				return false;
+			}
 
-		distanceVector.put(linkIP + linkPort, Double.POSITIVE_INFINITY);
-		return true;
+			distanceVector.put(ipPort, Double.POSITIVE_INFINITY);
+			return true;
+		}
 	}
 
 	/**
@@ -214,9 +220,9 @@ public class Client {
 		} catch (SocketException e) {
 			if (!isTest) {
 				System.err
-						.println("There was an error opening up your "
-								+ "write-only DatagramSocket on port "
-								+ this.writePort);
+				.println("There was an error opening up your "
+						+ "write-only DatagramSocket on port "
+						+ this.writePort);
 				e.printStackTrace();
 			}
 		}

@@ -22,6 +22,13 @@ import client.Client;
 public class ClientTest {
 
 	protected String configLoadNormal = "./configLoadNormal";
+	
+	/*
+	 * Contains the following neighbors:
+	 * 74.73.139.233:7881 1.4
+	 * 74.73.139.231:6661 2.3
+	 * 74.73.139.228:3131 10.0
+	 */
 	protected String configThreeNeighbors = "./configThreeNeighbors";
 	protected String configNoNeighbors = "./configNoNeighbors";
 	protected String configImproperFirstLine = "./configImproperFirstLine";
@@ -152,5 +159,45 @@ public class ClientTest {
 			fail();
 		} catch (IllegalArgumentException e) {
 		}
+	}
+	
+	@Test
+	public void testLinkdown() {
+		/* Client neighbors:
+		74.73.139.233:7881 1.4
+		74.73.139.231:6661 2.3
+		74.73.139.228:3131 10.0
+		*/
+		assertFalse(clientThreeNeighbors.linkdown("74.73.139.668", 3134));
+		assertFalse(clientThreeNeighbors.linkdown("74.73.139.223", 7881));
+		assertFalse(clientThreeNeighbors.linkdown("74.73.139.233", 6661));
+		assertFalse(clientNoNeighbors.linkdown("74.73.139.228", 3131));
+		
+		assertTrue(clientThreeNeighbors
+				.getDistanceVector()
+				.get("74.73.139.233:7881")
+				== 1.4);
+		assertTrue(clientThreeNeighbors.linkdown("74.73.139.233", 7881));
+		assertTrue(clientThreeNeighbors
+				.getDistanceVector()
+				.containsKey("74.73.139.233:7881"));
+		assertTrue(clientThreeNeighbors
+				.getDistanceVector()
+				.get("74.73.139.233:7881")
+				== Double.POSITIVE_INFINITY);
+		assertTrue(clientThreeNeighbors
+				.getDistanceVector()
+				.containsKey("74.73.139.231:6661"));
+		assertTrue(clientThreeNeighbors
+				.getDistanceVector()
+				.get("74.73.139.231:6661")
+				== 2.3);
+		assertTrue(clientThreeNeighbors
+				.getDistanceVector()
+				.containsKey("74.73.139.228:3131"));
+		assertTrue(clientThreeNeighbors
+				.getDistanceVector()
+				.get("74.73.139.228:3131")
+				== 10.0);
 	}
 }
