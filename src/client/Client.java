@@ -28,11 +28,18 @@ public class Client {
 	private int sequenceNumber;
 	private DatagramSocket readSocket = null;
 	private DatagramSocket writeSocket = null;
-	private Map<String, Double[]> neighbors = null;
 	private double timeout;
 	private Map<String, Double[]> distanceVector = null;
 	private Object distanceVectorLock = new Object();
+	private boolean isTest = false;
 
+	/**
+	 * Constructor for client object
+	 * 
+	 * @param timeout
+	 * @param configFile
+	 * @param writePort
+	 */
 	public Client(double timeout, String configFile, int writePort) {
 		try {
 			this.ipAddress = InetAddress.getLocalHost().getHostAddress();
@@ -47,17 +54,11 @@ public class Client {
 
 		try {
 			reader = new BufferedReader(new FileReader(configFile));
-			String[] portChunkSequence = getPortChunkSequence(reader);
-			this.readPort = Integer.parseInt(portChunkSequence[0]);
-			this.timeout = Double.parseDouble(portChunkSequence[1]);
-			this.chunk = portChunkSequence[2];
-			this.sequenceNumber = Integer.parseInt(portChunkSequence[3]);
-			this.neighbors = getNeighborsFromConfig(reader);
+			this.configureClient(reader);
 		} catch (FileNotFoundException e) {
 			System.err.println("Config file not found. Could not "
 					+ "instantiate Client object");
 			e.printStackTrace();
-			System.exit(1);
 		}
 
 		// Open read-only Datagram Socket on port readPort
@@ -80,8 +81,67 @@ public class Client {
 		}
 
 		this.timeout = timeout;
+	}
 
-		this.distanceVector = new TreeMap<String, Double[]>(this.neighbors);
+	/**
+	 * Constructor for client object
+	 * 
+	 * @param timeout
+	 * @param configFile
+	 * @param writePort
+	 * @param test
+	 */
+	public Client(double timeout, String configFile, int writePort, boolean isTest) {
+		try {
+			this.ipAddress = InetAddress.getLocalHost().getHostAddress();
+		} catch (UnknownHostException e) {
+			System.err.println("Your IP address could not be found. "
+					+ "Is your machine running any routing protocols?");
+			e.printStackTrace();
+			System.exit(1);
+		}
+
+		BufferedReader reader = null;
+
+		try {
+			reader = new BufferedReader(new FileReader(configFile));
+			this.configureClient(reader);
+		} catch (FileNotFoundException e) {
+			System.err.println("Config file not found. Could not "
+					+ "instantiate Client object");
+			e.printStackTrace();
+		}
+
+		// See if Client being instantiated in a test environment.
+		// If so, suppress some of the error output
+		this.isTest = isTest;
+		
+		// Open read-only Datagram Socket on port readPort
+		try {
+			this.readSocket = new DatagramSocket(readPort);
+		} catch (SocketException e) {
+			if (!isTest) {
+				System.err.println("There was an error opening up your "
+						+ "read-only Datagram Socket on port " + readPort);
+				e.printStackTrace();
+			}
+		}
+
+		// Open write-only Datagram Socket on port writePort
+		this.writePort = writePort;
+		try {
+			this.writeSocket = new DatagramSocket(this.writePort);
+		} catch (SocketException e) {
+			if (!isTest) {
+				System.err
+						.println("There was an error opening up your "
+								+ "write-only DatagramSocket on port "
+								+ this.writePort);
+				e.printStackTrace();
+			}
+		}
+
+		this.timeout = timeout;
 	}
 
 	/**
@@ -128,7 +188,7 @@ public class Client {
 				Double[] portWeight = new Double[3];
 				portWeight[0] = port;
 				portWeight[1] = weight;
-				portWeight[2] = 1.0; //Link up marker
+				portWeight[2] = 1.0; // Link up marker
 				neighbors.put(ipPort[0], portWeight);
 			}
 		} catch (IOException e) {
@@ -181,6 +241,15 @@ public class Client {
 		}
 	}
 
+	private void configureClient(BufferedReader reader) {
+		String[] portChunkSequence = getPortChunkSequence(reader);
+		this.readPort = Integer.parseInt(portChunkSequence[0]);
+		this.timeout = Double.parseDouble(portChunkSequence[1]);
+		this.chunk = portChunkSequence[2];
+		this.sequenceNumber = Integer.parseInt(portChunkSequence[3]);
+		this.distanceVector = getNeighborsFromConfig(reader);
+	}
+
 	public String getIpAddress() {
 		return ipAddress;
 	}
@@ -227,14 +296,6 @@ public class Client {
 
 	public void setWriteSocket(DatagramSocket writeSocket) {
 		this.writeSocket = writeSocket;
-	}
-
-	public Map<String, Double[]> getNeighbors() {
-		return neighbors;
-	}
-
-	public void setNeighbors(Map<String, Double[]> neighbors) {
-		this.neighbors = neighbors;
 	}
 
 	public double getTimeout() {
