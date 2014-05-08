@@ -4,6 +4,7 @@ import java.io.BufferedReader;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.SocketException;
@@ -28,8 +29,9 @@ public class Client {
 	private int sequenceNumber;
 	private DatagramSocket readSocket = null;
 	private DatagramSocket writeSocket = null;
+	private BufferedReader stdIn = null;
 	private double timeout;
-	private Map<String, Double[]> distanceVector = null;
+	private Map<String, Double> distanceVector = null;
 	private Object distanceVectorLock = new Object();
 	private boolean isTest = false;
 
@@ -41,46 +43,7 @@ public class Client {
 	 * @param writePort
 	 */
 	public Client(double timeout, String configFile, int writePort) {
-		try {
-			this.ipAddress = InetAddress.getLocalHost().getHostAddress();
-		} catch (UnknownHostException e) {
-			System.err.println("Your IP address could not be found. "
-					+ "Is your machine running any routing protocols?");
-			e.printStackTrace();
-			System.exit(1);
-		}
-
-		BufferedReader reader = null;
-
-		try {
-			reader = new BufferedReader(new FileReader(configFile));
-			this.configureClient(reader);
-		} catch (FileNotFoundException e) {
-			System.err.println("Config file not found. Could not "
-					+ "instantiate Client object");
-			e.printStackTrace();
-		}
-
-		// Open read-only Datagram Socket on port readPort
-		try {
-			this.readSocket = new DatagramSocket(readPort);
-		} catch (SocketException e) {
-			System.err.println("There was an error opening up your "
-					+ "read-only Datagram Socket on port " + readPort);
-			e.printStackTrace();
-		}
-
-		// Open write-only Datagram Socket on port writePort
-		this.writePort = writePort;
-		try {
-			this.writeSocket = new DatagramSocket(this.writePort);
-		} catch (SocketException e) {
-			System.err.println("There was an error opening up your "
-					+ "write-only DatagramSocket on port " + this.writePort);
-			e.printStackTrace();
-		}
-
-		this.timeout = timeout;
+		this.constructBasicClient(timeout, configFile, writePort, isTest);
 	}
 
 	/**
@@ -89,59 +52,11 @@ public class Client {
 	 * @param timeout
 	 * @param configFile
 	 * @param writePort
-	 * @param test
+	 * @param isTest
 	 */
-	public Client(double timeout, String configFile, int writePort, boolean isTest) {
-		try {
-			this.ipAddress = InetAddress.getLocalHost().getHostAddress();
-		} catch (UnknownHostException e) {
-			System.err.println("Your IP address could not be found. "
-					+ "Is your machine running any routing protocols?");
-			e.printStackTrace();
-			System.exit(1);
-		}
-
-		BufferedReader reader = null;
-
-		try {
-			reader = new BufferedReader(new FileReader(configFile));
-			this.configureClient(reader);
-		} catch (FileNotFoundException e) {
-			System.err.println("Config file not found. Could not "
-					+ "instantiate Client object");
-			e.printStackTrace();
-		}
-
-		// See if Client being instantiated in a test environment.
-		// If so, suppress some of the error output
-		this.isTest = isTest;
-		
-		// Open read-only Datagram Socket on port readPort
-		try {
-			this.readSocket = new DatagramSocket(readPort);
-		} catch (SocketException e) {
-			if (!isTest) {
-				System.err.println("There was an error opening up your "
-						+ "read-only Datagram Socket on port " + readPort);
-				e.printStackTrace();
-			}
-		}
-
-		// Open write-only Datagram Socket on port writePort
-		this.writePort = writePort;
-		try {
-			this.writeSocket = new DatagramSocket(this.writePort);
-		} catch (SocketException e) {
-			if (!isTest) {
-				System.err
-						.println("There was an error opening up your "
-								+ "write-only DatagramSocket on port "
-								+ this.writePort);
-				e.printStackTrace();
-			}
-		}
-
-		this.timeout = timeout;
+	public Client(double timeout, String configFile, int writePort,
+			boolean isTest) {
+		this.constructBasicClient(timeout, configFile, writePort, isTest);
 	}
 
 	/**
@@ -155,41 +70,26 @@ public class Client {
 	 * 
 	 * @return Map from neighbors' IP addresses to links
 	 */
-	public TreeMap<String, Double[]> getNeighborsFromConfig(
-			BufferedReader reader) throws IllegalArgumentException {
+	public TreeMap<String, Double> getNeighborsFromConfig(BufferedReader reader)
+			throws IllegalArgumentException {
 		if (reader == null) {
 			throw new IllegalArgumentException();
 		}
 
-		TreeMap<String, Double[]> neighbors = new TreeMap<String, Double[]>();
+		TreeMap<String, Double> neighbors = new TreeMap<String, Double>();
 
 		String next;
 		String[] ipPortWeight;
-		String[] ipPort;
-		Double port;
-		Double weight;
 		try {
 			while ((next = reader.readLine()) != null) {
 				// {IP:Port, weight}
 				ipPortWeight = next.split(" ");
-				if (ipPortWeight.length != 2) {
+				if (ipPortWeight.length != 2 || !ipPortWeight[0].contains(":")) {
 					throw new IllegalArgumentException();
 				}
 
-				// {IP, Port}
-				ipPort = ipPortWeight[0].split(":");
-
-				if (ipPort.length != 2) {
-					throw new IllegalArgumentException();
-				}
-
-				port = Double.parseDouble(ipPort[1]);
-				weight = Double.parseDouble(ipPortWeight[1]);
-				Double[] portWeight = new Double[3];
-				portWeight[0] = port;
-				portWeight[1] = weight;
-				portWeight[2] = 1.0; // Link up marker
-				neighbors.put(ipPort[0], portWeight);
+				neighbors.put(ipPortWeight[0],
+						Double.parseDouble(ipPortWeight[1]));
 			}
 		} catch (IOException e) {
 			System.err.println("Error reading in config file");
@@ -241,6 +141,96 @@ public class Client {
 		}
 	}
 
+	/**
+	 * Given a 
+	 * 
+	 * @param linkIP
+	 * @param linkPort
+	 * @return
+	 * @throws IllegalArgumentException
+	 */
+	public boolean linkdown(String linkIP, int linkPort)
+			throws IllegalArgumentException {
+		if (linkIP == null || linkIP.equals("") || linkPort <= 0) {
+			throw new IllegalArgumentException();
+		}
+
+		if (!this.distanceVector.containsKey(linkIP)) {
+			return false;
+		}
+
+		distanceVector.put(linkIP + linkPort, Double.POSITIVE_INFINITY);
+		return true;
+	}
+
+	/**
+	 * Helper method to construct basic Client. This method applies to all
+	 * constructors because it has the minimum requirements needed for a Client
+	 * to operate.
+	 * 
+	 * @param timeout
+	 * @param configFile
+	 * @param writePort
+	 * @param isTest
+	 */
+	private void constructBasicClient(double timeout, String configFile,
+			int writePort, boolean isTest) {
+		try {
+			this.ipAddress = InetAddress.getLocalHost().getHostAddress();
+		} catch (UnknownHostException e) {
+			System.err.println("Your IP address could not be found. "
+					+ "Is your machine running any routing protocols?");
+			e.printStackTrace();
+			System.exit(1);
+		}
+
+		BufferedReader reader = null;
+		try {
+			reader = new BufferedReader(new FileReader(configFile));
+			this.configureClient(reader);
+		} catch (FileNotFoundException e) {
+			System.err.println("Config file not found. Could not "
+					+ "instantiate Client object");
+			e.printStackTrace();
+		}
+
+		this.isTest = isTest;
+
+		// Open read-only Datagram Socket on port readPort
+		try {
+			this.readSocket = new DatagramSocket(readPort);
+		} catch (SocketException e) {
+			if (!isTest) {
+				System.err.println("There was an error opening up your "
+						+ "read-only Datagram Socket on port " + readPort);
+				e.printStackTrace();
+			}
+		}
+
+		// Open write-only Datagram Socket on port writePort
+		this.writePort = writePort;
+		try {
+			this.writeSocket = new DatagramSocket(this.writePort);
+		} catch (SocketException e) {
+			if (!isTest) {
+				System.err
+						.println("There was an error opening up your "
+								+ "write-only DatagramSocket on port "
+								+ this.writePort);
+				e.printStackTrace();
+			}
+		}
+
+		this.stdIn = new BufferedReader(new InputStreamReader(System.in));
+		this.timeout = timeout;
+	}
+
+	/**
+	 * Perform operations to read from given config file, and populate Client
+	 * fields accordingly.
+	 * 
+	 * @param reader
+	 */
 	private void configureClient(BufferedReader reader) {
 		String[] portChunkSequence = getPortChunkSequence(reader);
 		this.readPort = Integer.parseInt(portChunkSequence[0]);
@@ -306,11 +296,11 @@ public class Client {
 		this.timeout = timeout;
 	}
 
-	public Map<String, Double[]> getDistanceVector() {
+	public Map<String, Double> getDistanceVector() {
 		return distanceVector;
 	}
 
-	public void setDistanceVector(Map<String, Double[]> distanceVector) {
+	public void setDistanceVector(Map<String, Double> distanceVector) {
 		this.distanceVector = distanceVector;
 	}
 

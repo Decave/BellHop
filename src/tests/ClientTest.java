@@ -70,7 +70,7 @@ public class ClientTest {
 			fail();
 		}
 
-		Map<String, Double[]> neighbors = new TreeMap<String, Double[]>();
+		Map<String, Double> neighbors = new TreeMap<String, Double>();
 
 		// Test 3 neighbors:
 		// Skip a line because of header:
@@ -83,23 +83,17 @@ public class ClientTest {
 		neighbors = clientThreeNeighbors
 				.getNeighborsFromConfig(threeNeighborsReader);
 		assertTrue(neighbors.keySet().size() == 3);
-		assertTrue(neighbors.keySet().contains("74.73.139.233"));
-		assertTrue(neighbors.keySet().contains("74.73.139.231"));
-		assertTrue(neighbors.keySet().contains("74.73.139.228"));
-		Double[] neighbor1 = neighbors.get("74.73.139.233");
-		assertTrue(neighbor1[0] == 7881);
-		assertTrue(neighbor1[1] == 1.4);
-		assertTrue(neighbor1[2] == 1);
+		assertTrue(neighbors.keySet().contains("74.73.139.233:7881"));
+		assertTrue(neighbors.keySet().contains("74.73.139.231:6661"));
+		assertTrue(neighbors.keySet().contains("74.73.139.228:3131"));
+		Double neighbor1Weight = neighbors.get("74.73.139.233:7881");
+		assertTrue(neighbor1Weight == 1.4);
 
-		Double[] neighbor2 = neighbors.get("74.73.139.231");
-		assertTrue(neighbor2[0] == 6661);
-		assertTrue(neighbor2[1] == 2.3);
-		assertTrue(neighbor2[2] == 1);
+		Double neighbor2Weight = neighbors.get("74.73.139.231:6661");
+		assertTrue(neighbor2Weight == 2.3);
 
-		Double[] neighbor3 = neighbors.get("74.73.139.228");
-		assertTrue(neighbor3[0] == 3131);
-		assertTrue(neighbor3[1] == 10.0);
-		assertTrue(neighbor3[2] == 1);
+		Double neighbor3Weight = neighbors.get("74.73.139.228:3131");
+		assertTrue(neighbor3Weight == 10.0);
 
 		// Should return set with empty neighbors
 		// Skip a line because of header
@@ -111,7 +105,7 @@ public class ClientTest {
 		}
 		neighbors = clientThreeNeighbors
 				.getNeighborsFromConfig(noNeighborsReader);
-		assertEquals(new TreeMap<String, Double[]>(), neighbors);
+		assertEquals(new TreeMap<String, Double>(), neighbors);
 		assertTrue(neighbors.keySet().size() == 0);
 
 		try {
