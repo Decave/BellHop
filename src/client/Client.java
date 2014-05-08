@@ -142,9 +142,9 @@ public class Client {
 	}
 
 	/**
-	 * Given an IP address and port, if this Client has a neighbor
-	 * in their distance vector with a key corresponding to IP:Port, 
-	 * set the weight of that link to Double.POSITIVE_INFINITY.
+	 * Given an IP address and port, if this Client has a neighbor in their
+	 * distance vector with a key corresponding to IP:Port, set the weight of
+	 * that link to Double.POSITIVE_INFINITY.
 	 * 
 	 * @param linkIP
 	 * @param linkPort
@@ -153,19 +153,52 @@ public class Client {
 	 */
 	public boolean linkdown(String linkIP, int linkPort)
 			throws IllegalArgumentException {
-		synchronized(this.distanceVectorLock) {
+		synchronized (this.distanceVectorLock) {
 			if (linkIP == null || linkIP.equals("") || linkPort <= 0) {
 				throw new IllegalArgumentException();
 			}
 
 			String ipPort = linkIP + ":" + linkPort;
-			
+
 			if (!this.distanceVector.containsKey(ipPort)) {
 				return false;
 			}
 
 			distanceVector.put(ipPort, Double.POSITIVE_INFINITY);
 			return true;
+		}
+	}
+
+	/**
+	 * Given an IP address and port, if this Client has a neighbor in their
+	 * distance vector with a key corresponding to IP:Port, and if the weight 
+	 * associated with that link is infinity, set the weight of that link 
+	 * to weight parameter.
+	 * 
+	 * @param linkIP
+	 * @param linkPort
+	 * @param weight
+	 * @return True if link exists and is down, false otherwise.
+	 * @throws IllegalArgumentException
+	 */
+	public boolean linkup(String linkIP, int linkPort, double weight)
+			throws IllegalArgumentException {
+		synchronized (this.distanceVectorLock) {
+			if (linkIP == null || linkIP.equals("") || linkPort <= 0
+					|| weight < 0) {
+				throw new IllegalArgumentException();
+			}
+
+			String ipPort = linkIP + ":" + linkPort;
+
+			if (!this.distanceVector.containsKey(ipPort) || 
+					this.distanceVector.get(ipPort) != 
+					Double.POSITIVE_INFINITY) {
+				return false;
+			} else {
+				this.distanceVector.put(linkIP, weight);
+				return true;
+			}
 		}
 	}
 
@@ -244,6 +277,37 @@ public class Client {
 		this.chunk = portChunkSequence[2];
 		this.sequenceNumber = Integer.parseInt(portChunkSequence[3]);
 		this.distanceVector = getNeighborsFromConfig(reader);
+	}
+
+	/**
+	 * Given an IP:Port, check whether the corresponding weight in a Client's
+	 * distance vector (if the link exists), is equal to the weight parameter. 
+	 * @param ipPort
+	 * 
+	 * @param weight
+	 * 
+	 * @return True if link exists and associated weight is equal to weight, 
+	 * false otherwise.
+	 */
+	public boolean distanceVectorHasWeight(String ipPort, double weight) {
+		if (!distanceVector.containsKey(ipPort)) {
+			return false;
+		} else {
+			return distanceVector.get(ipPort) == weight;
+		}
+	}
+
+	/**
+	 * Given an IP:Port, check whether a client's distance vector contains a
+	 * corresponding link.
+	 * 
+	 * @param ipPort
+	 * 
+	 * @return True if Client's vector contains an entry corresponding to 
+	 * ipPort, false otherwise.
+	 */
+	public boolean hasLink(String ipPort) {
+		return distanceVector.containsKey(ipPort);
 	}
 
 	public String getIpAddress() {
