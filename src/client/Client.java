@@ -1,10 +1,11 @@
 package client;
 
+import java.io.BufferedReader;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.SocketException;
+import java.net.UnknownHostException;
 import java.util.Map;
-import java.util.Set;
 import java.util.TreeMap;
 
 /**
@@ -19,16 +20,34 @@ import java.util.TreeMap;
  * two tuple.
  */
 public class Client {
+	private String ipAddress;
 	private int localPort;
+	private String chunk;
+	private int sequenceNumber;
 	private DatagramSocket readSocket = null;
 	private DatagramSocket writeSocket = null;
-	private Map<InetAddress, Double[]> neighbors = null;
+	private Map<String, Double[]> neighbors = null;
 	private double timeout;
-	private Map<InetAddress, Double[]> distanceVector = null;
+	private Map<String, Double[]> distanceVector = null;
 	private Object distanceVectorLock = new Object();
 
-	public Client(int localPort, double timeout) {
-		this.localPort = localPort;
+	public Client(double timeout, String configFile) {
+		try {
+			this.ipAddress = InetAddress.getLocalHost().getHostAddress();
+		} catch (UnknownHostException e) {
+			System.err.println("Your IP address could not be found. " + 
+					"Is your machine running any routing protocols?");
+			e.printStackTrace();
+			System.exit(1);
+		}
+		
+		BufferedReader reader = null;
+		String[] portChunkSequence = getPortChunkSequence(reader);
+		this.localPort = Integer.parseInt(portChunkSequence[0]);
+		this.chunk = portChunkSequence[1];
+		this.sequenceNumber = Integer.parseInt(portChunkSequence[2]);
+		this.neighbors = getNeighborsFromConfig(reader);
+
 
 		// Open read-only Datagram Socket on port localPort
 		try {
@@ -50,18 +69,15 @@ public class Client {
 			System.exit(1);
 		}
 
-		this.neighbors = getNeighborsFromConfig();
-
 		this.timeout = timeout;
 
 		this.distanceVector = 
-				new TreeMap<InetAddress, Double[]>(this.neighbors);
+				new TreeMap<String, Double[]>(this.neighbors);
 	}
 
 	/**
 	 * Read in values from a config file with the following format:
 	 * 
-	 * 		localport timeout file_chunk_to_transfer file_sequence_number
 	 * 		ipaddress1:port1 weight1
 	 * 		[ipaddress2:port2 weight2]
 	 * 		[...]
@@ -72,7 +88,103 @@ public class Client {
 	 * 
 	 * @return Map from neighbors' IP addresses to links
 	 */
-	public Map<InetAddress, Double[]> getNeighborsFromConfig() {
-		throw new UnsupportedOperationException();
+	public Map<String, Double[]> getNeighborsFromConfig(BufferedReader reader) {
+		return null;
+	}
+	
+	/**
+	 * Read in values from the top line of a config file, with the following
+	 * format:
+	 * 
+	 * 		localport timeout file_chunk_to_transfer file_sequence_number
+	 * 
+	 * @param reader BufferedReader reading from configFile given as argument
+	 * in constructor.
+	 * 
+	 * @return Array of Strings representing:
+	 * { Local Port, Timeout Value, Chunk to transfer, Sequence Number } 
+	 */
+	public String[] getPortChunkSequence(BufferedReader reader) {
+		return null;
+	}
+
+	public String getIpAddress() {
+		return ipAddress;
+	}
+
+	public void setIpAddress(String ipAddress) {
+		this.ipAddress = ipAddress;
+	}
+
+	public int getLocalPort() {
+		return localPort;
+	}
+
+	public void setLocalPort(int localPort) {
+		this.localPort = localPort;
+	}
+
+	public String getChunk() {
+		return chunk;
+	}
+
+	public void setChunk(String chunk) {
+		this.chunk = chunk;
+	}
+
+	public int getSequenceNumber() {
+		return sequenceNumber;
+	}
+
+	public void setSequenceNumber(int sequenceNumber) {
+		this.sequenceNumber = sequenceNumber;
+	}
+
+	public DatagramSocket getReadSocket() {
+		return readSocket;
+	}
+
+	public void setReadSocket(DatagramSocket readSocket) {
+		this.readSocket = readSocket;
+	}
+
+	public DatagramSocket getWriteSocket() {
+		return writeSocket;
+	}
+
+	public void setWriteSocket(DatagramSocket writeSocket) {
+		this.writeSocket = writeSocket;
+	}
+
+	public Map<String, Double[]> getNeighbors() {
+		return neighbors;
+	}
+
+	public void setNeighbors(Map<String, Double[]> neighbors) {
+		this.neighbors = neighbors;
+	}
+
+	public double getTimeout() {
+		return timeout;
+	}
+
+	public void setTimeout(double timeout) {
+		this.timeout = timeout;
+	}
+
+	public Map<String, Double[]> getDistanceVector() {
+		return distanceVector;
+	}
+
+	public void setDistanceVector(Map<String, Double[]> distanceVector) {
+		this.distanceVector = distanceVector;
+	}
+
+	public Object getDistanceVectorLock() {
+		return distanceVectorLock;
+	}
+
+	public void setDistanceVectorLock(Object distanceVectorLock) {
+		this.distanceVectorLock = distanceVectorLock;
 	}
 }
