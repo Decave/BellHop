@@ -309,6 +309,14 @@ public class Client {
 	public boolean hasLink(String ipPort) {
 		return distanceVector.containsKey(ipPort);
 	}
+	
+	/**
+	 * Close Client program, and exit with a (successful) status of 0.
+	 */
+	public void close() {
+		System.out.println("Exiting now...");
+		System.exit(0);
+	}
 
 	public String getIpAddress() {
 		return ipAddress;
