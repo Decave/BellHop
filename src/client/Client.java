@@ -7,8 +7,12 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.SocketException;
 import java.net.UnknownHostException;
+import java.nio.ByteBuffer;
+import java.nio.channels.DatagramChannel;
+import java.nio.channels.Selector;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -27,8 +31,7 @@ public class Client {
 	private int writePort;
 	private String chunk;
 	private int sequenceNumber;
-	private DatagramSocket readSocket = null;
-	private DatagramSocket writeSocket = null;
+	private DatagramChannel channel = null;
 	private BufferedReader stdIn = null;
 	private double timeout;
 	private Map<String, Double> distanceVector = null;
@@ -46,14 +49,6 @@ public class Client {
 		this.constructBasicClient(timeout, configFile, writePort, isTest);
 	}
 
-	/**
-	 * Constructor for client object
-	 * 
-	 * @param timeout
-	 * @param configFile
-	 * @param writePort
-	 * @param isTest
-	 */
 	public Client(double timeout, String configFile, int writePort,
 			boolean isTest) {
 		this.constructBasicClient(timeout, configFile, writePort, isTest);
@@ -97,6 +92,40 @@ public class Client {
 		}
 
 		return neighbors;
+	}
+
+	public static void main(String[] args) {
+		if (args.length < 1 || args.length > 2
+				|| !args[1].contains("--timeout=")) {
+			System.err.println("Usage: bfclient <config-file> [--timeout]");
+			System.exit(1);
+		}
+
+		/*
+		 * Name of config file first arg, timeout value optional second value
+		 */
+		String configFile = args[0].trim();
+		Double timeoutValue = Double.parseDouble(args[1].trim());
+
+		ByteBuffer inputBuffer = ByteBuffer.allocate(1024);
+		inputBuffer.clear();
+
+		Client client = new Client(timeoutValue, configFile, 3183);
+
+		try {
+			while (true) {
+				client.getChannel().receive(inputBuffer);
+
+			}
+
+		} catch (IOException e) {
+			System.err.println("There was an error performing IO, either "
+					+ "while listening on port " + client.getReadPort()
+					+ ", or sending " + "a datagram. Closing the application"
+					+ " now.");
+			e.printStackTrace();
+			System.exit(1);
+		}
 	}
 
 	/**
@@ -171,9 +200,9 @@ public class Client {
 
 	/**
 	 * Given an IP address and port, if this Client has a neighbor in their
-	 * distance vector with a key corresponding to IP:Port, and if the weight 
-	 * associated with that link is infinity, set the weight of that link 
-	 * to weight parameter.
+	 * distance vector with a key corresponding to IP:Port, and if the weight
+	 * associated with that link is infinity, set the weight of that link to
+	 * weight parameter.
 	 * 
 	 * @param linkIP
 	 * @param linkPort
@@ -191,9 +220,8 @@ public class Client {
 
 			String ipPort = linkIP + ":" + linkPort;
 
-			if (!this.distanceVector.containsKey(ipPort) || 
-					this.distanceVector.get(ipPort) != 
-					Double.POSITIVE_INFINITY) {
+			if (!this.distanceVector.containsKey(ipPort)
+					|| this.distanceVector.get(ipPort) != Double.POSITIVE_INFINITY) {
 				return false;
 			} else {
 				this.distanceVector.put(linkIP, weight);
@@ -235,27 +263,16 @@ public class Client {
 
 		this.isTest = isTest;
 
-		// Open read-only Datagram Socket on port readPort
+		// Open Datagram channel, through which UDP Segments can be
+		// received and sent.
 		try {
-			this.readSocket = new DatagramSocket(readPort);
-		} catch (SocketException e) {
-			if (!isTest) {
+			this.channel = DatagramChannel.open();
+			this.channel.socket().bind(new InetSocketAddress(readPort));
+			channel.configureBlocking(false);
+		} catch (IOException e) {
+			if (!this.isTest) {
 				System.err.println("There was an error opening up your "
-						+ "read-only Datagram Socket on port " + readPort);
-				e.printStackTrace();
-			}
-		}
-
-		// Open write-only Datagram Socket on port writePort
-		this.writePort = writePort;
-		try {
-			this.writeSocket = new DatagramSocket(this.writePort);
-		} catch (SocketException e) {
-			if (!isTest) {
-				System.err
-				.println("There was an error opening up your "
-						+ "write-only DatagramSocket on port "
-						+ this.writePort);
+						+ "read-only Datagram Channel on port " + readPort);
 				e.printStackTrace();
 			}
 		}
@@ -281,13 +298,14 @@ public class Client {
 
 	/**
 	 * Given an IP:Port, check whether the corresponding weight in a Client's
-	 * distance vector (if the link exists), is equal to the weight parameter. 
+	 * distance vector (if the link exists), is equal to the weight parameter.
+	 * 
 	 * @param ipPort
 	 * 
 	 * @param weight
 	 * 
-	 * @return True if link exists and associated weight is equal to weight, 
-	 * false otherwise.
+	 * @return True if link exists and associated weight is equal to weight,
+	 *         false otherwise.
 	 */
 	public boolean distanceVectorHasWeight(String ipPort, double weight) {
 		if (!distanceVector.containsKey(ipPort)) {
@@ -303,13 +321,13 @@ public class Client {
 	 * 
 	 * @param ipPort
 	 * 
-	 * @return True if Client's vector contains an entry corresponding to 
-	 * ipPort, false otherwise.
+	 * @return True if Client's vector contains an entry corresponding to
+	 *         ipPort, false otherwise.
 	 */
 	public boolean hasLink(String ipPort) {
 		return distanceVector.containsKey(ipPort);
 	}
-	
+
 	/**
 	 * Close Client program, and exit with a (successful) status of 0.
 	 */
@@ -350,20 +368,12 @@ public class Client {
 		this.sequenceNumber = sequenceNumber;
 	}
 
-	public DatagramSocket getReadSocket() {
-		return readSocket;
+	public DatagramChannel getChannel() {
+		return channel;
 	}
 
-	public void setReadSocket(DatagramSocket readSocket) {
-		this.readSocket = readSocket;
-	}
-
-	public DatagramSocket getWriteSocket() {
-		return writeSocket;
-	}
-
-	public void setWriteSocket(DatagramSocket writeSocket) {
-		this.writeSocket = writeSocket;
+	public void setChannel(DatagramChannel channel) {
+		this.channel = channel;
 	}
 
 	public double getTimeout() {
