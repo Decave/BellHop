@@ -28,11 +28,9 @@ import java.util.TreeMap;
 public class Client {
 	private String ipAddress;
 	private int readPort;
-	private int writePort;
 	private String chunk;
 	private int sequenceNumber;
 	private DatagramChannel channel = null;
-	private BufferedReader stdIn = null;
 	private double timeout;
 	private Map<String, Double> distanceVector = null;
 	private Object distanceVectorLock = new Object();
@@ -112,6 +110,8 @@ public class Client {
 
 		Client client = new Client(timeoutValue, configFile, 3183);
 
+		Thread clientReaderThread = new Thread(new ClientReaderThread(client));
+		clientReaderThread.start();
 		try {
 			while (true) {
 				client.getChannel().receive(inputBuffer);
@@ -224,10 +224,27 @@ public class Client {
 					|| this.distanceVector.get(ipPort) != Double.POSITIVE_INFINITY) {
 				return false;
 			} else {
-				this.distanceVector.put(linkIP, weight);
+				this.distanceVector.put(ipPort, weight);
 				return true;
 			}
 		}
+	}
+
+	/**
+	 * TODO: Implement method
+	 */
+	public boolean showRt() {
+		return true;
+	}
+
+	/**
+	 * TODO: Implement method
+	 * 
+	 * @param destinationIP
+	 * @param portNum
+	 */
+	public boolean transfer(String destinationIP, int portNum) {
+		return true;
 	}
 
 	/**
@@ -277,7 +294,6 @@ public class Client {
 			}
 		}
 
-		this.stdIn = new BufferedReader(new InputStreamReader(System.in));
 		this.timeout = timeout;
 	}
 
@@ -331,9 +347,14 @@ public class Client {
 	/**
 	 * Close Client program, and exit with a (successful) status of 0.
 	 */
-	public void close() {
-		System.out.println("Exiting now...");
-		System.exit(0);
+	public boolean close() {
+		if (isTest) {
+			return true;
+		} else {
+			System.out.println("Exiting now...");
+			System.exit(0);
+			return true;
+		}
 	}
 
 	public String getIpAddress() {
@@ -400,11 +421,11 @@ public class Client {
 		this.distanceVectorLock = distanceVectorLock;
 	}
 
-	public int getWritePort() {
-		return writePort;
+	public boolean isTest() {
+		return isTest;
 	}
 
-	public void setWritePort(int writePort) {
-		this.writePort = writePort;
+	public void setTest(boolean isTest) {
+		this.isTest = isTest;
 	}
 }

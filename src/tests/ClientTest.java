@@ -3,6 +3,7 @@ package tests;
 import static org.junit.Assert.*;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
@@ -21,8 +22,6 @@ import client.Client;
 
 public class ClientTest {
 
-	protected String configLoadNormal = "./configLoadNormal";
-
 	/*
 	 * Contains the following neighbors:
 	 * 74.73.139.233:7881 1.4
@@ -32,27 +31,27 @@ public class ClientTest {
 	protected String neighbor1 = "74.73.139.233:7881";
 	protected String neighbor2 = "74.73.139.231:6661";
 	protected String neighbor3 = "74.73.139.228:3131";
-	protected String configThreeNeighbors = "./configThreeNeighbors";
-	protected String configNoNeighbors = "./configNoNeighbors";
-	protected String configImproperFirstLine = "./configImproperFirstLine";
-	protected String configImproperNeighbor = "./configImproperNeighbor";
+	protected File configThreeNeighbors = new File("configThreeNeighbors");
+	protected File configNoNeighbors = new File("configNoNeighbors");
+	protected File configImproperFirstLine = new File("configImproperFirstLine");
+	protected File configImproperNeighbor = new File("configImproperNeighbor");
 	protected Client clientThreeNeighbors = new Client(60.0,
-			configThreeNeighbors, 39131, true);
-	protected Client clientNoNeighbors = new Client(31.3, configNoNeighbors,
+			configThreeNeighbors.getAbsolutePath(), 39131, true);
+	protected Client clientNoNeighbors = new Client(31.3, configNoNeighbors.getAbsolutePath(),
 			43133, true);
 
 	@Test
-	public void testConstructor() {
+	public void testClientConstructor() {
 		try {
 			Client clientImproperFirstLine = new Client(93.331,
-					configImproperFirstLine, 38813, true);
+					configImproperFirstLine.getAbsolutePath(), 38813, true);
 			fail();
 		} catch (IllegalArgumentException e) {
 		}
 
 		try {
 			Client clientImproperNeighbor = new Client(381.3,
-					configImproperNeighbor, 19931, true);
+					configImproperNeighbor.getAbsolutePath(), 19931, true);
 			fail();
 		} catch (IllegalArgumentException e) {
 		}
@@ -246,7 +245,11 @@ public class ClientTest {
 		assertTrue(clientThreeNeighbors
 				.distanceVectorHasWeight(neighbor1, 1.4));
 		clientThreeNeighbors.linkdown("74.73.139.233", 7881);
+		assertTrue(clientThreeNeighbors
+				.distanceVectorHasWeight(neighbor1, Double.POSITIVE_INFINITY));
 		assertTrue(clientThreeNeighbors.linkup("74.73.139.233", 7881, 8.911));
+		assertTrue(clientThreeNeighbors
+				.distanceVectorHasWeight(neighbor1, 8.911));
 
 		/*
 		 * Test that a client with no neighbors can't linkup a link, even after
@@ -260,6 +263,10 @@ public class ClientTest {
 		 * than once):
 		 */
 		clientThreeNeighbors.linkdown("74.73.139.233", 7881);
+		assertTrue(clientThreeNeighbors
+				.distanceVectorHasWeight(neighbor1, Double.POSITIVE_INFINITY));
 		assertTrue(clientThreeNeighbors.linkup("74.73.139.233", 7881, 1.4));
+		assertTrue(clientThreeNeighbors
+				.distanceVectorHasWeight(neighbor1, 1.4));
 	}
 }
