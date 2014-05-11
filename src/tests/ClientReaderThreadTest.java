@@ -20,7 +20,7 @@ public class ClientReaderThreadTest {
 	protected File configThreeNeighbors = new File(
 			"src/tests/configThreeNeighbors");
 	protected Client clientThreeNeighbors = new Client(60.0,
-			configThreeNeighbors.getAbsolutePath(), 7361, true);
+			configThreeNeighbors.getAbsolutePath(), true);
 	protected ClientReaderThread realThread = new ClientReaderThread(
 			clientThreeNeighbors);
 

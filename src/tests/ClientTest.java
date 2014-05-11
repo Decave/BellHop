@@ -31,27 +31,27 @@ public class ClientTest {
 	protected String neighbor1 = "74.73.139.233:7881";
 	protected String neighbor2 = "74.73.139.231:6661";
 	protected String neighbor3 = "74.73.139.228:3131";
+	protected String neighbor4 = "74.73.139.311:9931";
 	protected File configThreeNeighbors = new File("configThreeNeighbors");
 	protected File configNoNeighbors = new File("configNoNeighbors");
 	protected File configImproperFirstLine = new File("configImproperFirstLine");
 	protected File configImproperNeighbor = new File("configImproperNeighbor");
 	protected Client clientThreeNeighbors = new Client(60.0,
-			configThreeNeighbors.getAbsolutePath(), 39131, true);
-	protected Client clientNoNeighbors = new Client(31.3, configNoNeighbors.getAbsolutePath(),
-			43133, true);
+			configThreeNeighbors.getAbsolutePath(), true);
+	protected Client clientNoNeighbors = new Client(31.3, configNoNeighbors.getAbsolutePath(), true);
 
 	@Test
 	public void testClientConstructor() {
 		try {
 			Client clientImproperFirstLine = new Client(93.331,
-					configImproperFirstLine.getAbsolutePath(), 38813, true);
+					configImproperFirstLine.getAbsolutePath(), true);
 			fail();
 		} catch (IllegalArgumentException e) {
 		}
 
 		try {
 			Client clientImproperNeighbor = new Client(381.3,
-					configImproperNeighbor.getAbsolutePath(), 19931, true);
+					configImproperNeighbor.getAbsolutePath(), true);
 			fail();
 		} catch (IllegalArgumentException e) {
 		}
@@ -268,5 +268,102 @@ public class ClientTest {
 		assertTrue(clientThreeNeighbors.linkup("74.73.139.233", 7881, 1.4));
 		assertTrue(clientThreeNeighbors
 				.distanceVectorHasWeight(neighbor1, 1.4));
+	}
+	
+	@Test
+	public void testCreateRoutingTableInitialDV() {
+		/* Client neighbors:
+		74.73.139.233:7881 1.4
+		74.73.139.231:6661 2.3
+		74.73.139.228:3131 10.0
+		
+		 * Should have routing table with entries:
+		 * <neighbor1, <neighbor1, 1.4>>
+		 * <neighbor2, <neighbor2, 2.3>>
+		 * <neighbor3, <neighbor3, 10.0>>
+		 */
+		Map<String, Map<String, Double>> table1 = new TreeMap<String, Map<String, Double>>();
+		table1 = clientThreeNeighbors.createRoutingTableInitialDV();
+		assertTrue(table1.get(neighbor1) != null);
+		assertTrue(table1.get(neighbor1).get(neighbor1) == 1.4);
+		assertTrue(table1.get(neighbor2).get(neighbor2) == 2.3);
+		assertTrue(table1.get(neighbor3).get(neighbor3) == 10.0);
+	}
+	
+	@Test
+	public void testUpdateDistanceVectorAndRoutingTableFromOtherDistanceVector() {
+		/* 
+		 * Initial routing table:
+		 * 
+		 * Should have routing table with entries:
+		 * <neighbor1, <neighbor1, 1.4>>
+		 * <neighbor2, <neighbor2, 2.3>>
+		 * <neighbor3, <neighbor3, 10.0>>
+		 * 
+		 * Initial Distance Vector:
+		 * <neighbor1, 1.4>
+		 * <neighbor2, 2.3>
+		 * <neighbor3, 10.0>
+		 * 
+		 * After update, should have the following:
+		 * 
+		 * New Routing Table:
+		 * <neighbor1, <neighbor1, 1.4>>
+		 * <neighbor2, <neighbor2, 2.3>>
+		 * <neighbor3, <neighbor2, 6.0>>
+		 * <neighbor4, <neighbor2, 8.3>>
+		 * 
+		 * with the following new Distance Vector:
+		 * <neighbor1, 1.4>
+		 * <neighbor2, 2.3>
+		 * <neighbor3, 7.0>
+		 * <neighbor4, 8.3>
+		 * 
+		 * and created from the distance vector:
+		 * <neighbor1, 3.3>
+		 * <my_ip, 2.3>
+		 * <neighbor3, 4.7>
+		 * <neighbor4, 6.0>
+		 */
+		Map<String, Map<String, Double>> otherDV = new TreeMap<String, Map<String, Double>>();
+		otherDV.put(neighbor1, 3.3);
+		otherDV.put(clientThreeNeighbors.getIpAddress() + ":" + clientThreeNeighbors.getReadPort(), 2.3);
+		otherDV.put(neighbor3, 4.7);
+		otherDV.put(neighbor4, 6.0);
+		
+		clientThreeNeighbors.updateDistanceVectorAndRoutingTableFromOtherDistanceVector(neighbor2, otherDV);
+		Map<String, Map<String, Double>> newDV = clientThreeNeighbors.getDistanceVector();
+		Map<String, Map<String, Double>> newRT = clientThreeNeighbors.getRoutingTable();
+		/*
+		 * Test that new DV has correct weights
+		 */
+		assertTrue(newDV.get(neighbor1) == 1.4);
+		assertTrue(newDV.get(neighbor2) == 2.3);
+		assertTrue(newDV.get(neighbor3) == 7.0);
+		assertTrue(newDV.keySet().contains(neighbor4));
+		assertTrue(newDV.get(neighbor4) == 8.3);
+		
+		/*
+		 * Test that routing table has correct next hops and weights
+		 */
+		
+		// First test next hops:
+		assertTrue(newRT.get(neighbor1).keySet().contains(neighbor1));
+		assertTrue(newRT.get(neighbor2).keySet().contains(neighbor2));
+		// Assert that next hop has changed for getting to neighbor 3
+		assertTrue(newRT.get(neighbor3).keySet().contains(neighbor2));
+		assertFalse(newRT.get(neighbor3).keySet().contains(neighbor3));
+		assertTrue(newRT.keySet().contains(neighbor4));
+		assertTrue(newRT.get(neighbor4).keySet().contains(neighbor2));
+		
+		// Now test weights:
+		assertEquals(newRT.get(neighbor1).get(neighbor1), newDV.get(neighbor1));
+		assertEquals(newRT.get(neighbor2).get(neighbor2), newDV.get(neighbor2));
+		assertEquals(newRT.get(neighbor3).get(neighbor2), newDV.get(neighbor3));
+		assertEquals(newRT.get(neighbor4).get(neighbor2), newDV.get(neighbor4));
+		
+		/*
+		 * Now, test that if a predecessor's link to a 
+		 */
 	}
 }
