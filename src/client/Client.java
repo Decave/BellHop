@@ -96,14 +96,14 @@ public class Client {
 		}
 
 		this.neighbors = neighborsWithWeights.keySet();
-		
+
 		return neighborsWithWeights;
 	}
 
 	/**
 	 * Given a Map of <IPPort, weights> to neighbors (they are read in from the
 	 * initial config file), create the initial DV. By default, set all the
-	 * weights of your neighbors' DV entries to 0.
+	 * weights of your neighbors' DV entries to infinity.
 	 * 
 	 * @param neighbors
 	 * 
@@ -112,23 +112,26 @@ public class Client {
 	public Map<String, Map<String, Double>> createDVFromNeighbors(
 			Map<String, Double> neighbors) {
 		this.distanceVector = new TreeMap<String, Map<String, Double>>();
-		distanceVector.put(localClientID, neighbors);
-		distanceVector.get(localClientID).put(localClientID, 0.0);
 
 		for (String neighbor : neighbors.keySet()) {
 			distanceVector.put(neighbor, new TreeMap<String, Double>());
+			distanceVector.get(neighbor).put(localClientID,
+					Double.POSITIVE_INFINITY);
 			for (String link : neighbors.keySet()) {
 				distanceVector.get(neighbor)
 						.put(link, Double.POSITIVE_INFINITY);
 			}
 		}
 
+		distanceVector.put(localClientID, neighbors);
+		distanceVector.get(localClientID).put(localClientID, 0.0);
+
 		return this.distanceVector;
 	}
 
 	/**
-	 * Given another node's new Distance Vector, update our own DV and 
-	 * our routing table.
+	 * Given another node's new Distance Vector, update our own DV and our
+	 * routing table.
 	 * 
 	 * @param ipPort
 	 * @param other
@@ -156,40 +159,119 @@ public class Client {
 				distanceVector.get(entry).put(ipPort, Double.POSITIVE_INFINITY);
 			}
 
-		} 
-		
+		}
+
+		for (String entry : other.keySet()) {
+			/*
+			 * Next, account for the case that an entry in the other is not
+			 * included in our distance vector as well
+			 */
+			if (!distanceVector.keySet().contains(entry)) {
+				distanceVector.put(entry, new TreeMap<String, Double>());
+				for (String currentEntry : distanceVector.keySet()) {
+					if (!currentEntry.equals(ipPort)) {
+						distanceVector.get(currentEntry).put(entry,
+								Double.POSITIVE_INFINITY);
+					}
+					distanceVector.get(entry).put(currentEntry,
+							Double.POSITIVE_INFINITY);
+				}
+				distanceVector.get(entry).put(entry, Double.POSITIVE_INFINITY);
+			}
+		}
+
 		/*
-		 * Once we're here, we know that our distance vector is "square" 
-		 * (i.e. every entry has a weight for every other entry, even if 
-		 * it is infinity). Now, we adjust our current distance vector to 
-		 * account for the new distance vector's entries.
+		 * Once we're here, we know that our distance vector is "square" (i.e.
+		 * every entry has a weight for every other entry, even if it is
+		 * infinity). Now, we adjust our current distance vector to account for
+		 * the new distance vector's entries.
 		 */
 		distanceVector.put(ipPort, other);
+
+		// Our distance to ipPort
 		double weightToIPPort = distanceVector.get(localClientID).get(ipPort);
 		Double newWeight;
+		/*
+		 * For every entry in our distance vector:
+		 */
 		for (String link : distanceVector.get(localClientID).keySet()) {
+			// Distance from local Client to link
 			double currentWeight = distanceVector.get(localClientID).get(link);
-			double otherWeight = distanceVector.get(other).get(link);
 
-			if (otherWeight + weightToIPPort < currentWeight) {
-				distanceVector.get(link).put(link, otherWeight);
-				String[] routingEntry = new String[2];
-				newWeight = otherWeight + weightToIPPort;
+			// Distance from ipPort client to link
+			double otherWeight = distanceVector.get(ipPort).get(link);
+
+			// Distance from local client to IPPort + ipPort to link
+			newWeight = otherWeight + weightToIPPort;
+			String[] routingEntry = new String[2];
+
+			/*
+			 * If the routing table contains a destination to current key in the
+			 * for loop, then adjust routing table and client's DV accordingly:
+			 */
+			if (routingTable.containsKey(link)) {
+
+				// Current routing entry for link
+				routingEntry = routingTable.get(link);
+
+				/*
+				 * If the next hop to that destination is the host who's DV has
+				 * changed:
+				 */
+				if (routingEntry[0].equals(ipPort)) {
+					/*
+					 * Then update our distance vector's entry corresponding to
+					 * link to automatically include newWeight, because the
+					 * weight of that entry necessarily depends on ipPort.
+					 * Similarly, update routing table's entry for link.
+					 */
+					distanceVector.get(localClientID).put(link, newWeight);
+					routingEntry[1] = newWeight.toString();
+					routingTable.put(link, routingEntry);
+					/*
+					 * Otherwise, though the routing table has a destination
+					 * corresponding to link, the next hop is not ipPort.
+					 */
+				} else {
+
+					/*
+					 * Another possibility we must account for is if our DV with
+					 * a new distance vector corresponds to our local client. If
+					 * so, we must adjust the weight to this new link to reflect
+					 * the new weight of next hop, because it is possible that
+					 * we do not have a link to this node directly from the
+					 * local client, or that we visit another neighbor first. Of
+					 * course, if the next hop to the link is equal to itself,
+					 * we skip it.
+					 */
+					if (ipPort.equals(localClientID)
+							&& !routingEntry[0].equals(link)) {
+						newWeight = distanceVector.get(localClientID).get(
+								routingEntry[0])
+								+ distanceVector.get(routingEntry[0]).get(link);
+						routingEntry[1] = newWeight.toString();
+						distanceVector.get(localClientID).put(link, newWeight);
+						routingTable.put(link, routingEntry);
+						continue;
+					}
+				}
+			} else if (newWeight < currentWeight) {
+				distanceVector.get(localClientID).put(link, newWeight);
+
 				routingEntry[0] = ipPort;
 				routingEntry[1] = newWeight.toString();
 				routingTable.put(link, routingEntry);
 			}
 		}
-		
+
 		routingTable = updateRoutingTableFromCurrentDV();
 	}
-	
+
 	public Map<String, String[]> updateRoutingTableFromCurrentDV() {
 		/*
-		 * Finally, have a nested for loop, where we iterate through each 
-		 * destination in the routing table, and check whether there is a 
-		 * better predecessor entry within our neighbors than what is already
-		 * there.
+		 * Finally, have a nested for loop, where we iterate through each
+		 * destination in the routing table, and check whether there is a better
+		 * predecessor entry within our neighbors than what is already there.
 		 */
 		Double currentDestinationWeight;
 		Double neighborToDestinationWeight;
@@ -199,24 +281,28 @@ public class Client {
 		String[] newDestinationEntry;
 		for (String destination : routingTable.keySet()) {
 			currentDestinationEntry = routingTable.get(destination);
-			currentDestinationWeight = Double.parseDouble(currentDestinationEntry[1]);
+			currentDestinationWeight = Double
+					.parseDouble(currentDestinationEntry[1]);
 			for (String neighbor : neighbors) {
 				newDestinationEntry = new String[2];
 				if (neighbors.equals(destination)) {
 					continue;
 				} else {
-					neighborToDestinationWeight = distanceVector.get(neighbor).get(destination);
-					weightToNeighbor = distanceVector.get(localClientID).get(neighbor);
+					neighborToDestinationWeight = distanceVector.get(neighbor)
+							.get(destination);
+					weightToNeighbor = distanceVector.get(localClientID).get(
+							neighbor);
 					if (neighborToDestinationWeight + weightToNeighbor < currentDestinationWeight) {
 						newDestinationEntry[0] = neighbor;
-						newWeight = weightToNeighbor + neighborToDestinationWeight;
+						newWeight = weightToNeighbor
+								+ neighborToDestinationWeight;
 						currentDestinationEntry[1] = newWeight.toString();
 						routingTable.put(destination, newDestinationEntry);
 					}
 				}
 			}
 		}
-		
+
 		return routingTable;
 	}
 
@@ -251,8 +337,12 @@ public class Client {
 		for (String ipPort : this.distanceVector.get(localClientID).keySet()) {
 			tableEntry = new String[2];
 			tableEntry[0] = ipPort;
-			
-			weightToEntry = distanceVector.get(localClientID).get(ipPort);
+
+			if (ipPort.equals(localClientID)) {
+				weightToEntry = 0.0;
+			} else {
+				weightToEntry = distanceVector.get(localClientID).get(ipPort);
+			}
 			tableEntry[1] = weightToEntry.toString();
 			routingTable.put(ipPort, tableEntry);
 		}
@@ -483,7 +573,6 @@ public class Client {
 		}
 
 		this.timeout = timeout;
-		this.localClientID = this.ipAddress + ":" + this.readPort;
 	}
 
 	/**
@@ -498,6 +587,7 @@ public class Client {
 		this.timeout = Double.parseDouble(portChunkSequence[1]);
 		this.chunk = portChunkSequence[2];
 		this.sequenceNumber = Integer.parseInt(portChunkSequence[3]);
+		this.localClientID = this.ipAddress + ":" + this.readPort;
 		this.distanceVector = createDVFromNeighbors(getNeighborsFromConfig(reader));
 		this.routingTable = createRoutingTableInitialDV();
 	}
@@ -646,11 +736,27 @@ public class Client {
 		this.isTest = isTest;
 	}
 
-	public Map<String, Map<String, Double>> getRoutingTable() {
+	public Map<String, String[]> getRoutingTable() {
 		return routingTable;
 	}
 
-	public void setRoutingTable(Map<String, Map<String, Double>> routingTable) {
+	public void setRoutingTable(Map<String, String[]> routingTable) {
 		this.routingTable = routingTable;
+	}
+
+	public String getLocalClientID() {
+		return localClientID;
+	}
+
+	public void setLocalClientID(String localClientID) {
+		this.localClientID = localClientID;
+	}
+
+	public Set<String> getNeighbors() {
+		return neighbors;
+	}
+
+	public void setNeighbors(Set<String> neighbors) {
+		this.neighbors = neighbors;
 	}
 }
