@@ -9,6 +9,7 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
+import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.text.SimpleDateFormat;
@@ -524,7 +525,9 @@ public class Client {
 			return false;
 		}
 
-		System.out.println(createShowRtString());
+		if (!isTest) {
+			System.out.println(createShowRtString());
+		}
 
 		return true;
 	}
@@ -581,8 +584,15 @@ public class Client {
 		 * Transform transferString into array of bytes and load it into the
 		 * writeBuffer
 		 */
-		writeBuffer.put(transferString.getBytes());
-		writeBuffer.put(chunkBytes);
+		try {
+			writeBuffer.put(transferString.getBytes());
+			writeBuffer.put(chunkBytes);
+		} catch (BufferOverflowException e) {
+			System.err.println("Unable to put contents of file into buffer."
+					+ " Try allocating more space to send files.");
+			e.printStackTrace();
+			return false;
+		}
 		writeBuffer.flip();
 
 		try {
@@ -594,7 +604,7 @@ public class Client {
 			e.printStackTrace();
 			return false;
 		}
-		
+
 		return true;
 	}
 
@@ -643,7 +653,8 @@ public class Client {
 
 		try {
 
-			reader = new BufferedReader(new FileReader(chunkFile));
+			reader = new BufferedReader(new FileReader(
+					chunkFile.getAbsolutePath()));
 			this.createChunkBytes(reader);
 		} catch (FileNotFoundException e) {
 			System.err.println("Chunk file not found. Could not "
@@ -669,7 +680,7 @@ public class Client {
 
 		this.timeout = timeout;
 
-		writeBuffer = ByteBuffer.allocate(1024);
+		writeBuffer = ByteBuffer.allocate(100000);
 		writeBuffer.clear();
 	}
 
@@ -872,5 +883,21 @@ public class Client {
 
 	public void setWriteBuffer(ByteBuffer writeBuffer) {
 		this.writeBuffer = writeBuffer;
+	}
+
+	public File getChunkFile() {
+		return chunkFile;
+	}
+
+	public void setChunkFile(File chunkFile) {
+		this.chunkFile = chunkFile;
+	}
+
+	public byte[] getChunkBytes() {
+		return chunkBytes;
+	}
+
+	public void setChunkBytes(byte[] chunkBytes) {
+		this.chunkBytes = chunkBytes;
 	}
 }
