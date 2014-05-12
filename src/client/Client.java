@@ -1,9 +1,11 @@
 package client;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
+import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
@@ -29,7 +31,7 @@ public class Client {
 	private String ipAddress;
 	private int readPort;
 	private String localClientID;
-	private String chunk;
+	private File chunkFile;
 	private int sequenceNumber;
 	private DatagramChannel channel = null;
 	private double timeout;
@@ -38,6 +40,8 @@ public class Client {
 	private Object distanceVectorLock = new Object();
 	private boolean isTest = false;
 	private Map<String, String[]> routingTable = new TreeMap<String, String[]>();
+	private ByteBuffer writeBuffer = null;
+	private byte[] chunkBytes = null;
 
 	/**
 	 * Constructor for Client object that sets isTest to false.
@@ -537,7 +541,7 @@ public class Client {
 
 		retStr.append("<Current time: ");
 		if (!isTest) {
-		retStr.append(dateTime.format(Calendar.getInstance().getTime()));
+			retStr.append(dateTime.format(Calendar.getInstance().getTime()));
 		} else {
 			retStr.append("00:16:33");
 		}
@@ -555,13 +559,54 @@ public class Client {
 	}
 
 	/**
-	 * TODO: Implement method
+	 * Given a destination IP and port number, print out the next hop in the
+	 * path to the destination, and send the Datagram towards the destination,
+	 * and to the next hop.
 	 * 
 	 * @param destinationIP
+	 * 
 	 * @param portNum
 	 */
 	public boolean transfer(String destinationIP, int portNum) {
+		writeBuffer.clear();
+		String destination = destinationIP + ":" + portNum;
+		if (routingTable == null
+				|| !routingTable.keySet().contains(destination)) {
+			return false;
+		}
+
+		String transferString = createTransferStringHeader(destination);
+
+		/*
+		 * Transform transferString into array of bytes and load it into the
+		 * writeBuffer
+		 */
+		writeBuffer.put(transferString.getBytes());
+		writeBuffer.put(chunkBytes);
+		writeBuffer.flip();
+
+		try {
+			channel.send(writeBuffer, new InetSocketAddress(destinationIP,
+					portNum));
+		} catch (IOException e) {
+			System.err.println("There was an error sending chunks to "
+					+ destination + ".");
+			e.printStackTrace();
+			return false;
+		}
+		
 		return true;
+	}
+
+	/**
+	 * Given a destination string parameter, create a header for the data that
+	 * will be sent in the Datagram.
+	 */
+	public String createTransferStringHeader(String destination) {
+		String retStr = "__TRANSFER__\n" + "Destination: " + destination + "\n"
+				+ "Previous hop: " + localClientID + "\n";
+
+		return retStr;
 	}
 
 	/**
@@ -589,8 +634,19 @@ public class Client {
 		try {
 			reader = new BufferedReader(new FileReader(configFile));
 			this.configureClient(reader);
+
 		} catch (FileNotFoundException e) {
 			System.err.println("Config file not found. Could not "
+					+ "instantiate Client object");
+			e.printStackTrace();
+		}
+
+		try {
+
+			reader = new BufferedReader(new FileReader(chunkFile));
+			this.createChunkBytes(reader);
+		} catch (FileNotFoundException e) {
+			System.err.println("Chunk file not found. Could not "
 					+ "instantiate Client object");
 			e.printStackTrace();
 		}
@@ -612,6 +668,9 @@ public class Client {
 		}
 
 		this.timeout = timeout;
+
+		writeBuffer = ByteBuffer.allocate(1024);
+		writeBuffer.clear();
 	}
 
 	/**
@@ -624,11 +683,27 @@ public class Client {
 		String[] portChunkSequence = getPortChunkSequence(reader);
 		this.readPort = Integer.parseInt(portChunkSequence[0]);
 		this.timeout = Double.parseDouble(portChunkSequence[1]);
-		this.chunk = portChunkSequence[2];
+		this.chunkFile = new File(portChunkSequence[2]);
 		this.sequenceNumber = Integer.parseInt(portChunkSequence[3]);
 		this.localClientID = this.ipAddress + ":" + this.readPort;
 		this.distanceVector = createDVFromNeighbors(getNeighborsFromConfig(reader));
 		this.routingTable = createRoutingTableInitialDV();
+	}
+
+	public void createChunkBytes(BufferedReader reader) {
+		String fileContents = "";
+		String currentLine = "";
+		try {
+			while ((currentLine = reader.readLine()) != null) {
+				fileContents += currentLine;
+			}
+		} catch (IOException e) {
+			System.err.println("There was an error reading from your "
+					+ "chunk file. Could not fill chunkBytes from File.");
+			e.printStackTrace();
+		}
+
+		this.chunkBytes = fileContents.getBytes();
 	}
 
 	/**
@@ -718,14 +793,6 @@ public class Client {
 		this.readPort = readPort;
 	}
 
-	public String getChunk() {
-		return chunk;
-	}
-
-	public void setChunk(String chunk) {
-		this.chunk = chunk;
-	}
-
 	public int getSequenceNumber() {
 		return sequenceNumber;
 	}
@@ -797,5 +864,13 @@ public class Client {
 
 	public void setNeighbors(Set<String> neighbors) {
 		this.neighbors = neighbors;
+	}
+
+	public ByteBuffer getWriteBuffer() {
+		return writeBuffer;
+	}
+
+	public void setWriteBuffer(ByteBuffer writeBuffer) {
+		this.writeBuffer = writeBuffer;
 	}
 }
