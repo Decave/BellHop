@@ -41,6 +41,7 @@ public class ClientTest {
 			configThreeNeighbors.getAbsolutePath(), true);
 	protected Client clientNoNeighbors = new Client(31.3,
 			configNoNeighbors.getAbsolutePath(), true);
+	protected static String fakeTime = "00:16:33";
 
 	@Test
 	public void testClientConstructor() {
@@ -261,7 +262,7 @@ public class ClientTest {
 		assertTrue(clientThreeNeighbors.linkup("74.73.139.233", 7881, 1.4));
 		assertTrue(clientThreeNeighbors.distanceVectorHasWeight(neighbor1, 1.4));
 	}
-	
+
 	@Test
 	public void testCreateDVFromNeighbors() {
 		/*
@@ -271,7 +272,7 @@ public class ClientTest {
 		 */
 		Map<String, Double> neighbors = new TreeMap<String, Double>();
 		neighbors.put(neighbor1, 1.4);
-		
+
 		Map<String, Map<String, Double>> retDV = clientNormal.createDVFromNeighbors(neighbors);
 		String normalID = clientNormal.getLocalClientID();
 		assertTrue(retDV.containsKey(normalID));
@@ -279,7 +280,7 @@ public class ClientTest {
 		assertTrue(retDV.get(normalID).containsKey(neighbor1));
 		assertTrue(retDV.get(normalID).get(normalID) == 0.0);
 		assertTrue(retDV.get(normalID).get(neighbor1) == 1.4);
-		
+
 		assertTrue(retDV.containsKey(neighbor1));
 		assertTrue(retDV.get(neighbor1).containsKey(neighbor1));
 		assertTrue(retDV.get(neighbor1).containsKey(normalID));
@@ -302,13 +303,13 @@ public class ClientTest {
 		 */
 		Map<String, String[]> table1 = new TreeMap<String, String[]>();
 		table1 = clientThreeNeighbors.createRoutingTableInitialDV();
-		
+
 		String clientID = clientThreeNeighbors.getLocalClientID();
 		assertTrue(table1.get(clientID) != null);
 		String[] localEntry = table1.get(clientID);
 		assertEquals(localEntry[0], clientID);
 		assertTrue(Double.parseDouble(localEntry[1]) == 0.0);
-		
+
 		assertTrue(table1.get(neighbor1) != null);
 		String[] neighbor1Entry = table1.get(neighbor1);
 		assertEquals(neighbor1Entry[0], neighbor1);
@@ -361,20 +362,20 @@ public class ClientTest {
 		otherDV.get(normalID).put(normalID, Double.POSITIVE_INFINITY);
 		otherDV.get(normalID).put(neighbor1, Double.POSITIVE_INFINITY);
 		otherDV.get(normalID).put(neighbor2, Double.POSITIVE_INFINITY);
-		
+
 		otherDV.put(neighbor1, new TreeMap<String, Double>());
 		otherDV.get(neighbor1).put(normalID, 1.4);
 		otherDV.get(neighbor1).put(neighbor1, 0.0);
 		otherDV.get(neighbor1).put(neighbor2, 2.6);
-		
+
 		otherDV.put(neighbor2, new TreeMap<String, Double>());
 		otherDV.get(neighbor2).put(normalID, Double.POSITIVE_INFINITY);
 		otherDV.get(neighbor2).put(neighbor1, Double.POSITIVE_INFINITY);
 		otherDV.get(neighbor2).put(neighbor2, Double.POSITIVE_INFINITY);
 		clientNormal
-				.updateDistanceVectorAndRoutingTableFromOtherDistanceVector(
-						neighbor1, otherDV.get(neighbor1));
-		
+		.updateDistanceVectorAndRoutingTableFromOtherDistanceVector(
+				neighbor1, otherDV.get(neighbor1));
+
 		Map<String, Map<String, Double>> newDV = clientNormal
 				.getDistanceVector();
 		Map<String, String[]> newRT = clientNormal
@@ -395,16 +396,16 @@ public class ClientTest {
 		String[] normalEntry = newRT.get(normalID);
 		String[] neighbor1Entry = newRT.get(neighbor1);
 		String[] neighbor2Entry = newRT.get(neighbor2);
-		
+
 		assertEquals(normalEntry[0], normalID);
 		assertEquals(neighbor1Entry[0], neighbor1);
 		assertEquals(neighbor2Entry[0], neighbor1);
-		
+
 		// Now test weights:
 		assertTrue(Double.parseDouble(normalEntry[1]) == 0.0);
 		assertTrue(Double.parseDouble(neighbor1Entry[1]) == 1.4);
 		assertTrue(Double.parseDouble(neighbor2Entry[1]) == 4.0);
-		
+
 		/*
 		 * Now, test that if a predecessor's link to an entry changes, that
 		 * is reflected in the new routing table.
@@ -413,24 +414,24 @@ public class ClientTest {
 		clientNormal
 		.updateDistanceVectorAndRoutingTableFromOtherDistanceVector(
 				neighbor1, otherDV.get(neighbor1));
-		
+
 		newDV = clientNormal
 				.getDistanceVector();
 		newRT = clientNormal
 				.getRoutingTable();
 		neighbor2Entry = newRT.get(neighbor2);
-		
+
 		assertTrue(newDV.get(normalID).get(normalID) == 0.0);
 		assertTrue(newDV.get(normalID).get(neighbor1) == 1.4);
 		assertTrue(newDV.get(normalID).containsKey(neighbor2));
 		assertTrue(newDV.get(normalID).get(neighbor2) == 15.0);
 		assertTrue(Double.parseDouble(neighbor2Entry[1]) == 15.0);
-		
+
 		clientNormal.getDistanceVector().get(normalID).put(neighbor1, 13.4);
 		clientNormal
 		.updateDistanceVectorAndRoutingTableFromOtherDistanceVector(
 				normalID, clientNormal.getDistanceVector().get(normalID));
-		
+
 		newDV = clientNormal
 				.getDistanceVector();
 		newRT = clientNormal
@@ -440,5 +441,17 @@ public class ClientTest {
 		assertTrue(newDV.get(normalID).get(neighbor1) == 13.4);
 		assertTrue(newDV.get(normalID).get(neighbor2) == 27.0);
 		assertTrue(Double.parseDouble(neighbor2Entry[1]) == 27.0);
+	}
+
+	@Test
+	public void testCreateShowRtString() {
+		String threeNeighborsRoutingTable = 
+				"<Current time: " + ClientTest.fakeTime + ">Distance vector list is:\n"
+						+ "Destination = 127.0.1.1:4400, Cost = 0.0, Link = (127.0.1.1:4400)\n"
+						+ "Destination = 74.73.139.228:3131, Cost = 10.0, Link = (74.73.139.228:3131)\n"
+						+ "Destination = 74.73.139.231:6661, Cost = 2.3, Link = (74.73.139.231:6661)\n"
+						+ "Destination = 74.73.139.233:7881, Cost = 1.4, Link = (74.73.139.233:7881)";
+
+		assertEquals(threeNeighborsRoutingTable, clientThreeNeighbors.createShowRtString());
 	}
 }
