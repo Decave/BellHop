@@ -38,7 +38,8 @@ public class ClientReaderThreadTest {
 		assertTrue(realThread.processInput("linkup 74.73.139.233 7881 3.8"));
 		assertTrue(realThread.processInput("close"));
 		assertTrue(realThread.processInput("showrt"));
-		assertTrue(realThread.processInput("transfer 83.881.67.311 8831"));
+		assertFalse(realThread.processInput("transfer 83.881.67.311 8831"));
+		assertTrue(realThread.processInput("transfer 74.73.139.233 7881"));
 		
 		// Assert incorrect commands return false 
 		assertFalse(realThread.processInput(null));
