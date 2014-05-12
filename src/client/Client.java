@@ -9,6 +9,8 @@ import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -509,10 +511,47 @@ public class Client {
 	}
 
 	/**
-	 * TODO: Implement method
+	 * Given a Client's routing table, print with a format of: <Current
+	 * Time>Distance vector list is: Destination = <IPAddress:Port>, Cost =
+	 * <Cost>, Link = <Next hop>
 	 */
 	public boolean showRt() {
+		if (routingTable == null || routingTable.keySet().size() == 0) {
+			return false;
+		}
+
+		System.out.println(createShowRtString());
+
 		return true;
+	}
+
+	/**
+	 * Create String that shows routing table. Used to test showRt boolean
+	 * method.
+	 * 
+	 * @return String representation of routing table
+	 */
+	public String createShowRtString() {
+		StringBuffer retStr = new StringBuffer();
+		SimpleDateFormat dateTime = new SimpleDateFormat("HH:mm:ss");
+
+		retStr.append("<Current time: ");
+		if (!isTest) {
+		retStr.append(dateTime.format(Calendar.getInstance().getTime()));
+		} else {
+			retStr.append("00:16:33");
+		}
+		retStr.append(">Distance vector list is:");
+		String[] routingEntry = new String[2];
+
+		for (String destination : routingTable.keySet()) {
+			routingEntry = routingTable.get(destination);
+			retStr.append("\nDestination = " + destination + ", ");
+			retStr.append("Cost = " + routingEntry[1] + ", ");
+			retStr.append("Link = (" + routingEntry[0] + ")");
+		}
+
+		return retStr.toString();
 	}
 
 	/**
