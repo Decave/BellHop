@@ -447,8 +447,8 @@ public class Client {
 	}
 
 	public static void main(String[] args) {
-		if (args.length < 1 || args.length > 2
-				|| !args[1].contains("--timeout=")) {
+		if ((args.length < 1 || args.length > 2) && (args.length == 2)
+				&& (!args[1].equals("")) && !args[1].contains("--timeout")) {
 			System.err.println("Usage: bfclient <config-file> [--timeout]");
 			System.exit(1);
 		}
@@ -456,16 +456,30 @@ public class Client {
 		/*
 		 * Name of config file first arg, timeout value optional second value
 		 */
+		Double timeoutValue = 60.0;
 		String configFile = args[0].trim();
-		Double timeoutValue = Double.parseDouble(args[1].trim());
+		if (args.length == 2 && args[1].contains("--timeout=")) {
+			String[] timeoutArg = args[1].split("=");
+			try {
+				timeoutValue = Double.parseDouble(timeoutArg[1].trim());
+			} catch (NumberFormatException e) {
+				System.err.println("You must provide a numerical value for "
+						+ "the timeout parameter. Using a default of 60.");
+				timeoutValue = 60.0;
+			}
+		}
 
 		ByteBuffer inputBuffer = ByteBuffer.allocate(1024);
 		inputBuffer.clear();
 
 		Client client = new Client(timeoutValue, configFile);
-
+		
 		Thread clientReaderThread = new Thread(new ClientReaderThread(client));
 		clientReaderThread.start();
+		
+		System.out.println("You are now listening on the following "
+				+ "IPAddress:Port channel: "
+				+ client.getLocalClientID());
 
 		// TODO: Add timer
 		try {
@@ -475,12 +489,20 @@ public class Client {
 			while (true) {
 				inputBuffer.clear();
 				client.getChannel().receive(inputBuffer);
-
-				byteArrayIS = new ByteArrayInputStream(inputBuffer.array());
+				byte[] data = new byte[inputBuffer.capacity()];
+				inputBuffer.get(data);
+				
+				/*
+				 * Troubleshooting: inputBuffer is returning with something
+				 */
+				
+				byteArrayIS = new ByteArrayInputStream(data);
 				objectIS = new ObjectInputStream(byteArrayIS);
-
+				
 				message = (BellHopMessage) objectIS.readObject();
-
+				
+				System.out.println("Received packet! Processing...");
+				
 				if (message.getMessageType().equals("__ROUTE-UPDATE__")) {
 					/*
 					 * If the received message if a __ROUTE-UPDATE__ message,
@@ -520,8 +542,6 @@ public class Client {
 						 * concatenated chunks to an output file. Otherwise,
 						 * save current chunk if we don't have it yet, or ignore
 						 * the packet if we do.
-						 * 
-						 * TODO: Download chunk locally
 						 */
 						System.out.println("Received __TRANSFER__ message as "
 								+ "intended recipient. Printing status "
@@ -827,13 +847,14 @@ public class Client {
 			 * Put new TransferMessage into a ByteArrayOutputStream and put that
 			 * into the writeBuffer to be sent.
 			 */
-			byteArrayOS = new ByteArrayOutputStream();
+			byteArrayOS = new ByteArrayOutputStream(writeBuffer.capacity());
 			objectOS = new ObjectOutputStream(byteArrayOS);
 			objectOS.writeObject(message);
 			objectOS.flush();
 
 			writeBuffer.put(byteArrayOS.toByteArray());
-
+			writeBuffer.flip();
+			
 			System.out.println(writeBuffer.toString());
 
 			// Send __TRANSFER__ message
@@ -894,7 +915,8 @@ public class Client {
 				objectOS.flush();
 
 				writeBuffer.put(byteArrayOS.toByteArray());
-
+				writeBuffer.flip();
+				
 				// Send __ROUTE-UPDATE__ message
 				channel.send(writeBuffer, new InetSocketAddress(
 						neighborIPPort[0], Integer.parseInt(neighborIPPort[1])));
@@ -1001,7 +1023,7 @@ public class Client {
 		try {
 			this.channel = DatagramChannel.open();
 			this.channel.socket().bind(new InetSocketAddress(readPort));
-			channel.configureBlocking(false);
+			channel.configureBlocking(true);
 		} catch (IOException e) {
 			if (!this.isTest) {
 				System.err.println("There was an error opening up your "

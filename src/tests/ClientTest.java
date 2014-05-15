@@ -7,6 +7,8 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.StreamCorruptedException;
+import java.net.BindException;
 import java.util.IllegalFormatException;
 import java.util.Map;
 import java.util.Set;
@@ -354,8 +356,7 @@ public class ClientTest {
 		 * Tests for adding neighbor2 from neighbor1's DV:
 		 * ***********************************************
 		 */
-		
-		
+
 		/*
 		 * Test that new DV has correct weights
 		 */
@@ -394,7 +395,7 @@ public class ClientTest {
 		 * (because neighbor1 is our next hop to neighbor2)
 		 * ****************************************
 		 */
-		
+
 		// Configure new DV with different weight for neighbor2:
 		otherDV.put(neighbor2, 13.6);
 		clientNormal
@@ -426,11 +427,11 @@ public class ClientTest {
 		otherDV.put(clientNormalID, 0.0);
 		otherDV.put(neighbor2, 27.0);
 		otherDV.put(neighbor1, 13.4);
-		
+
 		clientNormal
 				.updateDistanceVectorAndRoutingTableFromOtherDistanceVector(
 						clientNormalID, otherDV);
-		
+
 		newDV = clientNormal.getDistanceVector();
 		newRT = clientNormal.getRoutingTable();
 		neighbor2Entry = newRT.get(neighbor2);
@@ -542,9 +543,9 @@ public class ClientTest {
 		/*
 		 * Now test that shortening neighbor2's link to neighbor1 correctly
 		 * updates neighbor1's weight in local DV, and neighbor1's entry in RT.
-		 * After shortening, neighbor1's weight in local DV should be 
-		 * weightToNeighbor2 + neighbor2's weight to neighbor1 and next entry
-		 * in RT should be neighbor1
+		 * After shortening, neighbor1's weight in local DV should be
+		 * weightToNeighbor2 + neighbor2's weight to neighbor1 and next entry in
+		 * RT should be neighbor1
 		 */
 		Map<String, Double> dvCloserTo1 = new TreeMap<String, Double>();
 		dvCloserTo1.put(neighbor2, 0.0);
@@ -552,9 +553,9 @@ public class ClientTest {
 		dvCloserTo1.put(clientThreeID, 2.3);
 		dvCloserTo1.put(neighbor1, 1.0);
 		clientThreeNeighbors.getDistanceVector().put(neighbor2, dvCloserTo1);
-				
+
 		clientThreeNeighbors.findShorterPathAmongNeighbors(neighbor1);
-		
+
 		newDV = clientThreeNeighbors.getDistanceVector().get(clientThreeID);
 		newRT = clientThreeNeighbors.getRoutingTable();
 		neighbor1Entry = newRT.get(neighbor1);
