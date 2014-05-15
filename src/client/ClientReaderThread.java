@@ -93,7 +93,7 @@ public class ClientReaderThread implements Runnable {
 				 */
 				if (commandWords[0].equals("linkdown")) {
 					return mainClient.linkdown(commandWords[1],
-							Integer.parseInt(commandWords[2]));
+							Integer.parseInt(commandWords[2]), false);
 				} else if (commandWords[0].equals("transfer")) {
 					mainClient.transfer(commandWords[1],
 							Integer.parseInt(commandWords[2]));
@@ -109,7 +109,7 @@ public class ClientReaderThread implements Runnable {
 				if (commandWords[0].equals("linkup")) {
 					return mainClient.linkup(commandWords[1],
 							Integer.parseInt(commandWords[2]),
-							Double.parseDouble(commandWords[3]));
+							Double.parseDouble(commandWords[3]), false);
 				} else {
 					System.out.println(INVALID_COMMAND);
 					return false;

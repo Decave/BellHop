@@ -1,36 +1,26 @@
 package client;
 
-import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
-import java.io.OutputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
-import java.nio.ByteBuffer;
-import java.nio.channels.DatagramChannel;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.TimerTask;
 import java.util.TreeMap;
-
-import message.BellHopMessage;
-import message.RouteUpdateMessage;
-import message.TransferMessage;
+import java.util.Timer;
 
 /**
  * 
@@ -49,7 +39,7 @@ public class Client {
 	private String chunkName;
 	private int sequenceNumber;
 	private DatagramSocket socket = null;
-	private double timeout;
+	private int timeout;
 	private Set<String> neighbors = new HashSet<String>();
 	private Map<String, Map<String, Double>> distanceVector = null;
 	private Object dvRTLock = new Object();
@@ -58,6 +48,8 @@ public class Client {
 	private Map<String, boolean[]> chunkTracker = null;
 	private Map<String, byte[]> chunksReceived = new TreeMap<String, byte[]>();
 	private Map<String, ClientDatagramSender> senders = new TreeMap<String, ClientDatagramSender>();
+	private Map<String, Timer> timeoutTimers = new TreeMap<String, Timer>();
+	private Map<String, Timer> updateTimers = new TreeMap<String, Timer>();
 
 	/**
 	 * Constructor for Client object that sets isTest to false.
@@ -65,8 +57,8 @@ public class Client {
 	 * @param timeout
 	 * @param configFile
 	 */
-	public Client(double timeout, String configFile) {
-		this.constructBasicClient(timeout, configFile, false);
+	public Client(String configFile) {
+		this.constructBasicClient(configFile, false);
 	}
 
 	/**
@@ -76,8 +68,8 @@ public class Client {
 	 * @param configFile
 	 * @param isTest
 	 */
-	public Client(double timeout, String configFile, boolean isTest) {
-		this.constructBasicClient(timeout, configFile, isTest);
+	public Client(String configFile, boolean isTest) {
+		this.constructBasicClient(configFile, isTest);
 	}
 
 	/**
@@ -148,6 +140,23 @@ public class Client {
 		}
 
 		distanceVector.put(localClientID, neighbors);
+		for (String neighbor : neighbors.keySet()) {
+			if ((distanceVector.get(localClientID).get(neighbor) != Double.POSITIVE_INFINITY)
+					&& !neighbor.equals(localClientID)) {
+				Timer timeoutTimer = new Timer(neighbor);
+				TimerTask eraseLink = new ShutdownOldLinkTask(this, neighbor);
+				timeoutTimer.schedule(eraseLink, (long) 10 * 10 * this.timeout,
+						(long) 3 * 10 * 10 * timeout);
+				timeoutTimers.put(neighbor, timeoutTimer);
+
+				Timer updateTimer = new Timer();
+				TimerTask sendRouteUpdate = new SendNeighborRouteUpdateTask(
+						this);
+				updateTimer.schedule(sendRouteUpdate, (long) 10 * 10
+						* this.timeout, (long) 10 * 10 * this.timeout);
+				updateTimers.put(neighbor, updateTimer);
+			}
+		}
 		distanceVector.get(localClientID).put(localClientID, 0.0);
 
 		return this.distanceVector;
@@ -455,12 +464,11 @@ public class Client {
 		}
 
 		/*
-		 * Name of config file first arg, timeout value optional second value
+		 * Name of config file is the first and only arg
 		 */
-		Double timeoutValue = 60.0;
 		String configFile = args[0].trim();
 
-		Client client = new Client(timeoutValue, configFile);
+		Client client = new Client(configFile);
 
 		try {
 			// Open Datagram Socket, through which UDP Segments can be
@@ -562,7 +570,7 @@ public class Client {
 							fos = new FileOutputStream(chunkName);
 							fos.write(fullChunk.getBytes());
 							fos.close();
-							
+
 							System.out.println("You have succesfully received "
 									+ "and saved chunk " + chunkName + ".");
 						} else if (chunkReceived[0] || chunkReceived[1]) {
@@ -576,6 +584,18 @@ public class Client {
 						client.forwardTransferMessage(intendedRecipient,
 								message, chunkSequence);
 					}
+				} else if (headerVals[0].equals("__LINK-DOWN__")) {
+					String neighbor = headerVals[1];
+					String[] neighborArgs = neighbor.split(":");
+					client.linkdown(neighborArgs[0],
+							Integer.parseInt(neighborArgs[1]), true);
+				} else if (headerVals[0].equals("__LINK-UP__")) {
+					String neighbor = headerVals[1];
+					Double newWeight = Double.parseDouble(headerVals[2]);
+
+					String[] neighborArgs = neighbor.split(":");
+					client.linkup(neighborArgs[0],
+							Integer.parseInt(neighborArgs[1]), newWeight, true);
 				}
 			}
 
@@ -687,7 +707,7 @@ public class Client {
 		 * if array is properly formatted (size 4).
 		 */
 		String[] ret = header.split(" ");
-		if (ret.length != 4) {
+		if (ret.length != 4 && ret.length != 2) {
 			throw new IllegalArgumentException();
 		} else {
 			return ret;
@@ -704,7 +724,7 @@ public class Client {
 	 * @return True if link exists and is dropped, false if it does not exist.
 	 * @throws IllegalArgumentException
 	 */
-	public boolean linkdown(String linkIP, int linkPort)
+	public boolean linkdown(String linkIP, int linkPort, boolean recipient)
 			throws IllegalArgumentException {
 		synchronized (dvRTLock) {
 			if (linkIP == null || linkIP.equals("") || linkPort <= 0) {
@@ -713,14 +733,30 @@ public class Client {
 
 			String ipPort = linkIP + ":" + linkPort;
 
+			if (timeoutTimers.keySet().contains(ipPort)) {
+				timeoutTimers.get(ipPort).cancel();
+				timeoutTimers.remove(ipPort);
+			}
+
+			if (updateTimers.keySet().contains(ipPort)) {
+				updateTimers.get(ipPort).cancel();
+				updateTimers.remove(ipPort);
+			}
+
 			if (!this.distanceVector.containsKey(ipPort)) {
 				return false;
 			}
 
 			distanceVector.get(localClientID).put(ipPort,
 					Double.POSITIVE_INFINITY);
+
+			if (!recipient) {
+				sendLinkDownMessage(ipPort);
+			}
+
 			updateDistanceVectorAndRoutingTableFromOtherDistanceVector(
 					localClientID, distanceVector.get(localClientID));
+
 			return true;
 		}
 	}
@@ -737,8 +773,8 @@ public class Client {
 	 * @return True if link exists and is down, false otherwise.
 	 * @throws IllegalArgumentException
 	 */
-	public boolean linkup(String linkIP, int linkPort, double weight)
-			throws IllegalArgumentException {
+	public boolean linkup(String linkIP, int linkPort, double weight,
+			boolean recipient) throws IllegalArgumentException {
 		synchronized (dvRTLock) {
 			if (linkIP == null || linkIP.equals("") || linkPort <= 0
 					|| weight < 0) {
@@ -751,6 +787,23 @@ public class Client {
 					|| this.distanceVector.get(localClientID).get(ipPort) != Double.POSITIVE_INFINITY) {
 				return false;
 			} else {
+				if (!recipient) {
+					sendLinkUp(ipPort, weight);
+				}
+				Timer timeoutTimer = new Timer(ipPort);
+				TimerTask eraseLink = new ShutdownOldLinkTask(this, ipPort);
+				timeoutTimer.schedule(eraseLink, (long) 10 * 10 * this.timeout,
+						(long) 3 * 10 * 10 * timeout);
+				timeoutTimers.put(ipPort, timeoutTimer);
+
+				Timer updateTimer = new Timer();
+				TimerTask sendRouteUpdate = new SendNeighborRouteUpdateTask(
+						this);
+				updateTimer.schedule(sendRouteUpdate, (long) 10 * 10
+						* this.timeout, (long) 10 * 10 * this.timeout);
+				updateTimers.put(ipPort, updateTimer);
+
+				neighbors.add(ipPort);
 				this.distanceVector.get(localClientID).put(ipPort, weight);
 				updateDistanceVectorAndRoutingTableFromOtherDistanceVector(
 						localClientID, distanceVector.get(localClientID));
@@ -932,24 +985,71 @@ public class Client {
 		System.out.println("Sending __ROUTE-UPDATE__ messages.");
 
 		for (String neighbor : neighbors) {
-			/*
-			 * For each neighbor, get a deeply copied, Poison-Reverse'd distance
-			 * vector and create a new RouteUpdateMessage object to send as a
-			 * Serialized object.
-			 */
-			Map<String, Double> tempDV = poisonReversedDistanceVector(neighbor);
+			if (distanceVector.get(localClientID).get(neighbor) == Double.POSITIVE_INFINITY) {
+				continue;
+			} else {
+				/*
+				 * For each neighbor whose link is up, get a deeply copied,
+				 * Poison-Reverse'd distance vector, create a new
+				 * __ROUTE-UPDATE__ message, and reset all updateTimers
+				 */
 
-			String header = createRouteUpdateStringHeader(neighbor);
-			String stringDV = createDVStringForRouteUpdate(tempDV);
+				Timer updateTimer = new Timer();
+				TimerTask sendRouteUpdate = new SendNeighborRouteUpdateTask(
+						this);
+				updateTimer.schedule(sendRouteUpdate, (long) 10 * 10
+						* this.timeout, (long) 10 * 10 * this.timeout);
+				if (updateTimers.keySet().contains(neighbor)) {
+					updateTimers.get(neighbor).cancel();
+				}
+				updateTimers.put(neighbor, updateTimer);
 
-			String message = header + stringDV;
-			ClientDatagramSender sender = senders.get(neighbor);
-			sender.sendPacketToNeighbor(message.getBytes());
+				Map<String, Double> tempDV = poisonReversedDistanceVector(neighbor);
 
-			System.out.println("Sending __ROUTE-UPDATE__ message to "
-					+ neighbor + " at " + new Date() + ".");
+				String header = createRouteUpdateStringHeader(neighbor);
+				String stringDV = createDVStringForRouteUpdate(tempDV);
+
+				String message = header + stringDV;
+				ClientDatagramSender sender = senders.get(neighbor);
+				sender.sendPacketToNeighbor(message.getBytes());
+
+				System.out.println("Sending __ROUTE-UPDATE__ message to "
+						+ neighbor + " at " + new Date() + ".");
+			}
 		}
 
+	}
+
+	/**
+	 * Send a LinkDown message to recipient to notify them that the link between
+	 * you has gone down.
+	 * 
+	 * @param recipient
+	 */
+	public void sendLinkDownMessage(String recipient) {
+		System.out.println("Sending __LINK-DOWN__ message to " + recipient);
+
+		String linkDownMessage = "__LINK-DOWN__" + "|" + localClientID;
+
+		ClientDatagramSender sender = senders.get(recipient);
+		sender.sendPacketToNeighbor(linkDownMessage.getBytes());
+	}
+
+	/**
+	 * Send a LinkUp message to a recipient to notify them that the link between
+	 * you has been
+	 * 
+	 * @param recipient
+	 * @param weight
+	 */
+	public void sendLinkUp(String recipient, double weight) {
+		System.out.println("Sending __LINK-UP__ message to " + recipient);
+
+		String linkUpMessage = "__LINK-UP__" + "|" + localClientID + "|"
+				+ weight;
+
+		ClientDatagramSender sender = senders.get(recipient);
+		sender.sendPacketToNeighbor(linkUpMessage.getBytes());
 	}
 
 	/**
@@ -1018,8 +1118,7 @@ public class Client {
 	 * @param writePort
 	 * @param isTest
 	 */
-	private void constructBasicClient(double timeout, String configFile,
-			boolean isTest) {
+	private void constructBasicClient(String configFile, boolean isTest) {
 		try {
 			this.ipAddress = InetAddress.getLocalHost().getHostAddress();
 		} catch (UnknownHostException e) {
@@ -1041,7 +1140,6 @@ public class Client {
 		}
 
 		this.isTest = isTest;
-		this.timeout = timeout;
 	}
 
 	/**
@@ -1053,11 +1151,13 @@ public class Client {
 	private void configureClient(BufferedReader reader) {
 		String[] portChunkSequence = getPortChunkSequence(reader);
 		this.readPort = Integer.parseInt(portChunkSequence[0]);
-		this.timeout = Double.parseDouble(portChunkSequence[1]);
-		this.chunkName = portChunkSequence[2];
+		this.timeout = Integer.parseInt(portChunkSequence[1]);
+		if (portChunkSequence.length == 4) {
+			this.chunkName = portChunkSequence[2];
+			this.sequenceNumber = Integer.parseInt(portChunkSequence[3]);
+		}
 		this.chunk = getBytesFromChunkName();
 		this.chunkTracker = new TreeMap<String, boolean[]>();
-		this.sequenceNumber = Integer.parseInt(portChunkSequence[3]);
 		this.localClientID = this.ipAddress + ":" + this.readPort;
 		this.distanceVector = createDVFromNeighbors(getNeighborsFromConfig(reader));
 		this.routingTable = createRoutingTableInitialDV();
@@ -1191,11 +1291,11 @@ public class Client {
 		this.socket = socket;
 	}
 
-	public double getTimeout() {
+	public int getTimeout() {
 		return timeout;
 	}
 
-	public void setTimeout(double timeout) {
+	public void setTimeout(int timeout) {
 		this.timeout = timeout;
 	}
 
