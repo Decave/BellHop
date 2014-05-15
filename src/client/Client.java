@@ -44,7 +44,7 @@ public class Client {
 	private double timeout;
 	private Set<String> neighbors = new HashSet<String>();
 	private Map<String, Map<String, Double>> distanceVector = null;
-	private Object distanceVectorLock = new Object();
+	private Object dvRTLock = new Object();
 	private boolean isTest = false;
 	private Map<String, String[]> routingTable = new TreeMap<String, String[]>();
 	private ByteBuffer writeBuffer = null;
@@ -154,21 +154,24 @@ public class Client {
 	public void updateDistanceVectorAndRoutingTableFromOtherDistanceVector(
 			String newDVSender, Map<String, Double> other) {
 
-		addNewDVEntriesToOtherDVs(newDVSender, other);
+		synchronized (dvRTLock) {
+			addNewDVEntriesToOtherDVs(newDVSender, other);
 
-		if (newDVSender.equals(localClientID)) {
-			for (String neighbor : neighbors) {
-				distanceVector.get(neighbor).put(localClientID, other.get(neighbor));
+			if (newDVSender.equals(localClientID)) {
+				for (String neighbor : neighbors) {
+					distanceVector.get(neighbor).put(localClientID,
+							other.get(neighbor));
+				}
+				distanceVector.put(localClientID, other);
 			}
-			distanceVector.put(localClientID, other);
+
+			/*
+			 * Once we're here, we know that all of our distance vectors have
+			 * the same width. Now, we adjust our current distance vector to
+			 * account for the new distance vector's entries.
+			 */
+			updateLocalDVFromNewDV(newDVSender, other);
 		}
-		
-		/*
-		 * Once we're here, we know that all of our distance vectors have the
-		 * same width. Now, we adjust our current distance vector to account for
-		 * the new distance vector's entries.
-		 */
-		updateLocalDVFromNewDV(newDVSender, other);
 	}
 
 	/**
@@ -210,7 +213,8 @@ public class Client {
 			String[] oldRoutingEntry = new String[2];
 			oldRoutingEntry = routingTable.get(entry);
 
-			if (oldRoutingEntry[0].equals(newDVSender) || weightToSenderToEntry <= localWeightToEntry) {
+			if (oldRoutingEntry[0].equals(newDVSender)
+					|| weightToSenderToEntry <= localWeightToEntry) {
 				String[] newRoutingEntry = new String[2];
 				newRoutingEntry[0] = newDVSender;
 				newRoutingEntry[1] = weightToSenderToEntry.toString();
@@ -391,68 +395,6 @@ public class Client {
 
 	}
 
-	/**
-	 * Update the routing table from the current distance vector
-	 */
-	public void updateRoutingTableFromCurrentDV() {
-		/*
-		 * Have a nested for loop, where we iterate through each destination in
-		 * the routing table, and check whether there is a better predecessor
-		 * entry within our neighbors than what is already there.
-		 */
-		Double currentDestinationWeight;
-		Double neighborToDestinationWeight;
-		Double weightToNeighbor;
-		Double weightToDestThroughNeighbor;
-		String[] currentDestinationEntry;
-		String[] newDestinationEntry;
-		for (String destination : routingTable.keySet()) {
-			currentDestinationEntry = routingTable.get(destination);
-			currentDestinationWeight = Double
-					.parseDouble(currentDestinationEntry[1]);
-			newDestinationEntry = routingTable.get(destination);
-			for (String neighbor : neighbors) {
-				if (neighbors.equals(destination)) {
-					/*
-					 * Skip the case of when a neighbor is the destination,
-					 * because the weight will always be 0 (and should be
-					 * ignored).
-					 */
-
-					continue;
-				} else {
-					/*
-					 * Otherwise, a neighbor could potentially be the next hop
-					 * to the destination. To find the neighbor with the
-					 * shortest path, sum weightToNeighbor +
-					 * weightOfNeighborToDestination, and see if it is less than
-					 * the cost that is already there. If so, make neighbor the
-					 * next path and adjust the weight appropriately.
-					 */
-
-					// Get weights
-					neighborToDestinationWeight = distanceVector.get(neighbor)
-							.get(destination);
-					weightToNeighbor = distanceVector.get(localClientID).get(
-							neighbor);
-					weightToDestThroughNeighbor = weightToNeighbor
-							+ neighborToDestinationWeight;
-
-					// Do check for smallest weight
-					if (weightToDestThroughNeighbor < currentDestinationWeight) {
-						/*
-						 * If weight is smaller than what is there, change the
-						 * routing entry.
-						 */
-						newDestinationEntry[0] = neighbor;
-						currentDestinationEntry[1] = weightToDestThroughNeighbor
-								.toString();
-						routingTable.put(destination, newDestinationEntry);
-					}
-				}
-			}
-		}
-	}
 
 	/**
 	 * Create this Client's routing table from it's initial Distance Vector
@@ -619,7 +561,7 @@ public class Client {
 	 */
 	public boolean linkdown(String linkIP, int linkPort)
 			throws IllegalArgumentException {
-		synchronized (this.distanceVectorLock) {
+		synchronized (dvRTLock) {
 			if (linkIP == null || linkIP.equals("") || linkPort <= 0) {
 				throw new IllegalArgumentException();
 			}
@@ -652,7 +594,7 @@ public class Client {
 	 */
 	public boolean linkup(String linkIP, int linkPort, double weight)
 			throws IllegalArgumentException {
-		synchronized (this.distanceVectorLock) {
+		synchronized (dvRTLock) {
 			if (linkIP == null || linkIP.equals("") || linkPort <= 0
 					|| weight < 0) {
 				throw new IllegalArgumentException();
@@ -851,6 +793,13 @@ public class Client {
 		return poisonReverseDV;
 	}
 
+	/**
+	 * Given a nextHop client, check which destinations it is the 
+	 * nextHop for
+	 * 
+	 * @param nextHop
+	 * @return
+	 */
 	public Set<String> destinationsForNextHop(String nextHop) {
 		Set<String> destinations = new HashSet<String>();
 
@@ -1093,12 +1042,12 @@ public class Client {
 		this.distanceVector = distanceVector;
 	}
 
-	public Object getDistanceVectorLock() {
-		return distanceVectorLock;
+	public Object getdvRTLock() {
+		return dvRTLock;
 	}
 
-	public void setDistanceVectorLock(Object distanceVectorLock) {
-		this.distanceVectorLock = distanceVectorLock;
+	public void setdvRTLock(Object dvRTLock) {
+		this.dvRTLock = dvRTLock;
 	}
 
 	public boolean isTest() {
