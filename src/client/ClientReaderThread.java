@@ -41,14 +41,15 @@ public class ClientReaderThread implements Runnable {
 	}
 
 	/**
-	 * Given a String input representing a command given by a user at the 
-	 * terminal, process the command. Each command must be "registered" in 
-	 * the AVAILABLE_COMMANDS static final set of this class. In the future, 
-	 * this class could be improved by having AVAILABLE_COMMANDS be an object
-	 * of type Map<String, Callable>, where Callable is the method that 
-	 * runs the command.
+	 * Given a String input representing a command given by a user at the
+	 * terminal, process the command. Each command must be "registered" in the
+	 * AVAILABLE_COMMANDS static final set of this class. In the future, this
+	 * class could be improved by having AVAILABLE_COMMANDS be an object of type
+	 * Map<String, Callable>, where Callable is the method that runs the
+	 * command.
 	 * 
-	 * @param command Terminal command provided by user.
+	 * @param command
+	 *            Terminal command provided by user.
 	 */
 	public boolean processInput(String command) {
 		if (command == null || command.equals("")) {
@@ -94,8 +95,9 @@ public class ClientReaderThread implements Runnable {
 					return mainClient.linkdown(commandWords[1],
 							Integer.parseInt(commandWords[2]));
 				} else if (commandWords[0].equals("transfer")) {
-					return mainClient.transfer(commandWords[1],
+					mainClient.transfer(commandWords[1],
 							Integer.parseInt(commandWords[2]));
+					return true;
 				} else {
 					System.out.println(INVALID_COMMAND);
 					return false;
