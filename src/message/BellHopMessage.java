@@ -66,4 +66,30 @@ public abstract class BellHopMessage implements Serializable {
 	 * @return String
 	 */
 	public abstract String getMessageType();
+
+	/**
+	 * Set previousHop to client currently sending packet
+	 * 
+	 * @param previousHop localClientID of Client sending packet
+	 */
+	public void setPreviousHop(String previousHop) {
+		this.previousHop = previousHop;
+	}
+
+	/**
+	 * Set destination to client to whom packet will next be transferred 
+	 * @param destination ipAddress:Port string of receiving Client
+	 */
+	public void setDestination(String destination) {
+		this.destination = destination;
+	}
+
+	/**
+	 * Set Date / Time of packet to be when transmitted by sending Client.
+	 * 
+	 * @param date
+	 */
+	public void setDate(Date date) {
+		this.date = date;
+	}
 }

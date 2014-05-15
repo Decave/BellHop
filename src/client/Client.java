@@ -12,7 +12,6 @@ import java.io.ObjectOutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
-import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.text.SimpleDateFormat;
@@ -24,6 +23,7 @@ import java.util.TreeMap;
 
 import message.BellHopMessage;
 import message.RouteUpdateMessage;
+import message.TransferMessage;
 
 /**
  * 
@@ -38,7 +38,7 @@ public class Client {
 	private String ipAddress;
 	private int readPort;
 	private String localClientID;
-	private File chunkFile;
+	private File chunk;
 	private int sequenceNumber;
 	private DatagramChannel channel = null;
 	private double timeout;
@@ -48,7 +48,6 @@ public class Client {
 	private boolean isTest = false;
 	private Map<String, String[]> routingTable = new TreeMap<String, String[]>();
 	private ByteBuffer writeBuffer = null;
-	private byte[] chunkBytes = null;
 	private ByteArrayOutputStream byteArrayOS = null;
 	private ObjectOutputStream objectOS = null;
 
@@ -395,7 +394,6 @@ public class Client {
 
 	}
 
-
 	/**
 	 * Create this Client's routing table from it's initial Distance Vector
 	 */
@@ -672,52 +670,59 @@ public class Client {
 	public boolean transfer(String destinationIP, int portNum) {
 		String destination = destinationIP + ":" + portNum;
 		if (!routingTable.keySet().contains(destination)) {
+			System.err.println("You tried to send a chunk to a destination "
+					+ "that does not exist: " + destination);
 			return false;
 		}
 
-		String[] routingEntry = routingTable.get(destination);
-
-		String header = createTransferStringHeader(destination);
+		String[] routingEntry = new String[2];
+		routingEntry = routingTable.get(destination);
 
 		/*
-		 * Transform transferString into array of bytes and load it into the
-		 * writeBuffer
+		 * Populate TransferMessage with: - previousHop (localClientID) -
+		 * nextHop (routingEntry[0]) - destination - sequenceNumber - chunk
 		 */
+		TransferMessage transferMessage = new TransferMessage(localClientID,
+				routingEntry[0], destination, sequenceNumber, chunk);
+
+		System.out.println("Sending __TRANSFER__ message to " + destination
+				+ " at " + transferMessage.getDate() + ".");
 		try {
 			writeBuffer.clear();
-			writeBuffer.put(header.getBytes());
-			writeBuffer.put(chunkBytes);
-		} catch (BufferOverflowException e) {
-			System.err.println("Unable to put contents of file into buffer."
-					+ " Try allocating more space to send files.");
-			e.printStackTrace();
-			return false;
-		}
-		writeBuffer.flip();
+			/*
+			 * Put new TransferMessage into a ByteArrayOutputStream and put
+			 * that into the writeBuffer to be sent.
+			 */
+			byteArrayOS = new ByteArrayOutputStream();
+			objectOS = new ObjectOutputStream(byteArrayOS);
+			objectOS.writeObject(transferMessage);
+			objectOS.flush();
 
-		try {
-			System.out.println("Next node: " + routingEntry[0]);
-			channel.send(writeBuffer, new InetSocketAddress(destinationIP,
-					portNum));
+			writeBuffer.put(byteArrayOS.toByteArray());
+
+			System.out.println(writeBuffer.toString());
+			
+			// Send __TRANSFER__ message
+			String[] nextHop = transferMessage.getDestination().split(":");
+			if (nextHop.length != 2) {
+				System.err.println("You provided an improperly formatted "
+						+ "destination address. Please try again.");
+				return false;
+			}
+			
+			channel.send(
+					writeBuffer,
+					new InetSocketAddress(nextHop[0], Integer
+							.parseInt(nextHop[1])));
 		} catch (IOException e) {
-			System.err.println("There was an error sending chunks to "
-					+ destination + ".");
+			System.err.println("There was an error sending a "
+					+ "__TRANSFER__ message to "
+					+ transferMessage.getDestination() + ".");
 			e.printStackTrace();
 			return false;
 		}
 
 		return true;
-	}
-
-	/**
-	 * Given a destination string parameter, create a header for the data that
-	 * will be sent in the Datagram.
-	 * 
-	 * @return Header for __TRANSFER__ message
-	 */
-	public String createTransferStringHeader(String destination) {
-		return "__TRANSFER__\n" + "Destination: " + destination + "\n"
-				+ "Previous hop: " + localClientID + "\n__TRANSFER__\n";
 	}
 
 	/**
@@ -794,8 +799,7 @@ public class Client {
 	}
 
 	/**
-	 * Given a nextHop client, check which destinations it is the 
-	 * nextHop for
+	 * Given a nextHop client, check which destinations it is the nextHop for
 	 * 
 	 * @param nextHop
 	 * @return
@@ -856,17 +860,6 @@ public class Client {
 			e.printStackTrace();
 		}
 
-		try {
-
-			reader = new BufferedReader(new FileReader(
-					chunkFile.getAbsolutePath()));
-			this.createChunkBytes(reader);
-		} catch (FileNotFoundException e) {
-			System.err.println("Chunk file not found. Could not "
-					+ "instantiate Client object");
-			e.printStackTrace();
-		}
-
 		this.isTest = isTest;
 
 		// Open Datagram channel, through which UDP Segments can be
@@ -885,7 +878,7 @@ public class Client {
 
 		this.timeout = timeout;
 
-		writeBuffer = ByteBuffer.allocate(100000);
+		writeBuffer = ByteBuffer.allocate(64000);
 		writeBuffer.clear();
 	}
 
@@ -899,27 +892,11 @@ public class Client {
 		String[] portChunkSequence = getPortChunkSequence(reader);
 		this.readPort = Integer.parseInt(portChunkSequence[0]);
 		this.timeout = Double.parseDouble(portChunkSequence[1]);
-		this.chunkFile = new File(portChunkSequence[2]);
+		this.chunk = new File(portChunkSequence[2]);
 		this.sequenceNumber = Integer.parseInt(portChunkSequence[3]);
 		this.localClientID = this.ipAddress + ":" + this.readPort;
 		this.distanceVector = createDVFromNeighbors(getNeighborsFromConfig(reader));
 		this.routingTable = createRoutingTableInitialDV();
-	}
-
-	public void createChunkBytes(BufferedReader reader) {
-		String fileContents = "";
-		String currentLine = "";
-		try {
-			while ((currentLine = reader.readLine()) != null) {
-				fileContents += currentLine;
-			}
-		} catch (IOException e) {
-			System.err.println("There was an error reading from your "
-					+ "chunk file. Could not fill chunkBytes from File.");
-			e.printStackTrace();
-		}
-
-		this.chunkBytes = fileContents.getBytes();
 	}
 
 	/**
@@ -1090,19 +1067,12 @@ public class Client {
 		this.writeBuffer = writeBuffer;
 	}
 
-	public File getChunkFile() {
-		return chunkFile;
+	public File getChunk() {
+		return chunk;
 	}
 
-	public void setChunkFile(File chunkFile) {
-		this.chunkFile = chunkFile;
+	public void setChunk(File chunk) {
+		this.chunk = chunk;
 	}
 
-	public byte[] getChunkBytes() {
-		return chunkBytes;
-	}
-
-	public void setChunkBytes(byte[] chunkBytes) {
-		this.chunkBytes = chunkBytes;
-	}
 }

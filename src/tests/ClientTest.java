@@ -62,10 +62,8 @@ public class ClientTest {
 		} catch (IllegalArgumentException e) {
 		}
 
-		assertNotNull(clientThreeNeighbors.getChunkBytes());
-		assertNotNull(clientNormal.getChunkBytes());
-		assertNotNull(clientThreeNeighbors.getChunkFile());
-		assertNotNull(clientNormal.getChunkFile());
+		assertNotNull(clientThreeNeighbors.getChunk());
+		assertNotNull(clientNormal.getChunk());
 	}
 
 	@Test
