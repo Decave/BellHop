@@ -20,6 +20,7 @@ import org.junit.Test;
 
 import client.Client;
 
+@SuppressWarnings("unused")
 public class ClientTest {
 
 	/*
@@ -58,7 +59,7 @@ public class ClientTest {
 			fail();
 		} catch (IllegalArgumentException e) {
 		}
-		
+
 		assertNotNull(clientThreeNeighbors.getChunkBytes());
 		assertNotNull(clientNormal.getChunkBytes());
 		assertNotNull(clientThreeNeighbors.getChunkFile());
@@ -271,14 +272,14 @@ public class ClientTest {
 	@Test
 	public void testCreateDVFromNeighbors() {
 		/*
-		 * Expected DV:
-		 * <me, 0>, <neighbor1, 1.4>
-		 * <me, infinity>, <neighbor1, infinity>
+		 * Expected DV: <me, 0>, <neighbor1, 1.4> <me, infinity>, <neighbor1,
+		 * infinity>
 		 */
 		Map<String, Double> neighbors = new TreeMap<String, Double>();
 		neighbors.put(neighbor1, 1.4);
 
-		Map<String, Map<String, Double>> retDV = clientNormal.createDVFromNeighbors(neighbors);
+		Map<String, Map<String, Double>> retDV = clientNormal
+				.createDVFromNeighbors(neighbors);
 		String normalID = clientNormal.getLocalClientID();
 		assertTrue(retDV.containsKey(normalID));
 		assertTrue(retDV.get(normalID).containsKey(normalID));
@@ -296,15 +297,11 @@ public class ClientTest {
 	@Test
 	public void testCreateRoutingTableInitialDV() {
 		/*
-		 * Client neighbors: 
-		 * 74.73.139.233:7881 1.4 
-		 * 74.73.139.231:6661 2.3
+		 * Client neighbors: 74.73.139.233:7881 1.4 74.73.139.231:6661 2.3
 		 * 74.73.139.228:3131 10.0
 		 * 
-		 * Should have routing table with entries: 
-		 * <neighbor1, { neighbor1, 1.4 }> 
-		 * <neighbor2, { neighbor2, 2.3 }> 
-		 * <neighbor3, { neighbor3, 10.0 }>
+		 * Should have routing table with entries: <neighbor1, { neighbor1, 1.4
+		 * }> <neighbor2, { neighbor2, 2.3 }> <neighbor3, { neighbor3, 10.0 }>
 		 */
 		Map<String, String[]> table1 = new TreeMap<String, String[]>();
 		table1 = clientThreeNeighbors.createRoutingTableInitialDV();
@@ -334,57 +331,27 @@ public class ClientTest {
 	@Test
 	public void testUpdateDistanceVectorAndRoutingTableFromOtherDistanceVector() {
 		/*
-		 * 74.73.139.233:7881 1.4
+		 * After function call:
 		 * 
-		 * Initial DV:
-		 * <me, 0>, <neighbor1, 1.4>
-		 * <me, infinity>, <neighbor1, infinity>
+		 * new Distance Vector: <me, 0>, <neighbor1, 1.4>, <neighbor2, 4.0> <me,
+		 * 1.4>, <neighbor1, 0>, <neighbor2, 2.6> <me, infinity>, <neighbor1,
+		 * infinity>, <neighbor2, infinity>
 		 * 
-		 * Initial routing table:
-		 * <me, { me, 0 } >
-		 * <neighbor1, { neighbor1, 1.4 } >
-		 * 
-		 * After update, should have the following:
-		 * 
-		 * new Distance Vector:
-		 * <me, 0>, <neighbor1, 1.4>, <neighbor2, 4.0>
-		 * <me, 1.4>, <neighbor1, 0>, <neighbor2, 2.6>
-		 * <me, infinity>, <neighbor1, infinity>, <neighbor2, infinity>
-		 * 
-		 * New Routing Table: 
-		 * <me, { me, 0 } >
-		 * <neighbor1, { neighbor1, 1.4 } >
+		 * New Routing Table: <me, { me, 0 } > <neighbor1, { neighbor1, 1.4 } >
 		 * <neighbor2, { neighbor1, 4 } >
 		 * 
-		 * and created from the distance vector:
-		 * <me, infinity>, neighbor1, infinity>, <neighbor2, infinity>
-		 * <me, 1.4>, <neighbor1, 0>, <neighbor2, 2.6>
-		 * <me, infinity>, <neighbor1, infinity>, <neighbor2, infinity>
+		 * and created from the distance vector: <me, infinity>, neighbor1,
+		 * infinity>, <neighbor2, infinity> <me, 1.4>, <neighbor1, 0>,
+		 * <neighbor2, 2.6> <me, infinity>, <neighbor1, infinity>, <neighbor2,
+		 * infinity>
 		 */
-		Map<String, Map<String, Double>> otherDV = new TreeMap<String, Map<String, Double>>();
+		Map<String, Map<String, Double>> otherDV = giveClientNormalDVAndRTWithNewNeighbor();
+
 		String normalID = clientNormal.getLocalClientID();
-		otherDV.put(normalID, new TreeMap<String, Double>());
-		otherDV.get(normalID).put(normalID, Double.POSITIVE_INFINITY);
-		otherDV.get(normalID).put(neighbor1, Double.POSITIVE_INFINITY);
-		otherDV.get(normalID).put(neighbor2, Double.POSITIVE_INFINITY);
-
-		otherDV.put(neighbor1, new TreeMap<String, Double>());
-		otherDV.get(neighbor1).put(normalID, 1.4);
-		otherDV.get(neighbor1).put(neighbor1, 0.0);
-		otherDV.get(neighbor1).put(neighbor2, 2.6);
-
-		otherDV.put(neighbor2, new TreeMap<String, Double>());
-		otherDV.get(neighbor2).put(normalID, Double.POSITIVE_INFINITY);
-		otherDV.get(neighbor2).put(neighbor1, Double.POSITIVE_INFINITY);
-		otherDV.get(neighbor2).put(neighbor2, Double.POSITIVE_INFINITY);
-		clientNormal
-		.updateDistanceVectorAndRoutingTableFromOtherDistanceVector(
-				neighbor1, otherDV.get(neighbor1));
 
 		Map<String, Map<String, Double>> newDV = clientNormal
 				.getDistanceVector();
-		Map<String, String[]> newRT = clientNormal
-				.getRoutingTable();
+		Map<String, String[]> newRT = clientNormal.getRoutingTable();
 		/*
 		 * Test that new DV has correct weights
 		 */
@@ -412,18 +379,16 @@ public class ClientTest {
 		assertTrue(Double.parseDouble(neighbor2Entry[1]) == 4.0);
 
 		/*
-		 * Now, test that if a predecessor's link to an entry changes, that
-		 * is reflected in the new routing table.
+		 * Now, test that if a predecessor's link to an entry changes, that is
+		 * reflected in the new routing table.
 		 */
 		otherDV.get(neighbor1).put(neighbor2, 13.6);
 		clientNormal
-		.updateDistanceVectorAndRoutingTableFromOtherDistanceVector(
-				neighbor1, otherDV.get(neighbor1));
+				.updateDistanceVectorAndRoutingTableFromOtherDistanceVector(
+						neighbor1, otherDV.get(neighbor1));
 
-		newDV = clientNormal
-				.getDistanceVector();
-		newRT = clientNormal
-				.getRoutingTable();
+		newDV = clientNormal.getDistanceVector();
+		newRT = clientNormal.getRoutingTable();
 		neighbor2Entry = newRT.get(neighbor2);
 
 		assertTrue(newDV.get(normalID).get(normalID) == 0.0);
@@ -434,29 +399,131 @@ public class ClientTest {
 
 		clientNormal.getDistanceVector().get(normalID).put(neighbor1, 13.4);
 		clientNormal
-		.updateDistanceVectorAndRoutingTableFromOtherDistanceVector(
-				normalID, clientNormal.getDistanceVector().get(normalID));
+				.updateDistanceVectorAndRoutingTableFromOtherDistanceVector(
+						normalID, clientNormal.getDistanceVector()
+								.get(normalID));
 
-		newDV = clientNormal
-				.getDistanceVector();
-		newRT = clientNormal
-				.getRoutingTable();
+		newDV = clientNormal.getDistanceVector();
+		newRT = clientNormal.getRoutingTable();
 		neighbor2Entry = newRT.get(neighbor2);
 		assertTrue(newDV.get(normalID).get(normalID) == 0.0);
 		assertTrue(newDV.get(normalID).get(neighbor1) == 13.4);
 		assertTrue(newDV.get(normalID).get(neighbor2) == 27.0);
 		assertTrue(Double.parseDouble(neighbor2Entry[1]) == 27.0);
+
+		System.out.println(clientThreeNeighbors.createShowRtString());
+		String clientThreeID = clientThreeNeighbors.getLocalClientID();
+		Map<String, Double> dvCloserTo1 = new TreeMap<String, Double>();
+		dvCloserTo1.put(neighbor1, 2.6);
+		dvCloserTo1.put(neighbor2, 3.1);
+		dvCloserTo1.put(clientThreeID, 1.4);
+		dvCloserTo1.put(neighbor3, 0.0);
+		clientThreeNeighbors
+				.updateDistanceVectorAndRoutingTableFromOtherDistanceVector(
+						neighbor3, dvCloserTo1);
+		newDV = clientThreeNeighbors.getDistanceVector();
+		newRT = clientThreeNeighbors.getRoutingTable();
+		neighbor1Entry = newRT.get(neighbor1);
+		assertTrue(newDV.get(clientThreeID).get(clientThreeID) == 0.0);
+		//assertTrue(newDV.get(clientThreeID).get(neighbor1) == 4.0);
+		assertTrue(newDV.get(clientThreeID).get(neighbor2) == 2.3);
+		assertTrue(newDV.get(clientThreeID).get(neighbor3) == 1.4);
+		assertEquals(neighbor1Entry[0], neighbor3);
+		assertTrue(Double.parseDouble(neighbor1Entry[1]) == 4.0);
 	}
 
 	@Test
 	public void testCreateShowRtString() {
-		String threeNeighborsRoutingTable = 
-				"<Current time: " + ClientTest.fakeTime + ">Distance vector list is:\n"
-						+ "Destination = 127.0.1.1:4400, Cost = 0.0, Link = (127.0.1.1:4400)\n"
-						+ "Destination = 74.73.139.228:3131, Cost = 10.0, Link = (74.73.139.228:3131)\n"
-						+ "Destination = 74.73.139.231:6661, Cost = 2.3, Link = (74.73.139.231:6661)\n"
-						+ "Destination = 74.73.139.233:7881, Cost = 1.4, Link = (74.73.139.233:7881)";
+		String threeNeighborsRoutingTable = "<Current time: "
+				+ ClientTest.fakeTime
+				+ ">Distance vector list is:\n"
+				+ "Destination = 127.0.1.1:4400, Cost = 0.0, Link = (127.0.1.1:4400)\n"
+				+ "Destination = 74.73.139.228:3131, Cost = 10.0, Link = (74.73.139.228:3131)\n"
+				+ "Destination = 74.73.139.231:6661, Cost = 2.3, Link = (74.73.139.231:6661)\n"
+				+ "Destination = 74.73.139.233:7881, Cost = 1.4, Link = (74.73.139.233:7881)";
 
-		assertEquals(threeNeighborsRoutingTable, clientThreeNeighbors.createShowRtString());
+		assertEquals(threeNeighborsRoutingTable,
+				clientThreeNeighbors.createShowRtString());
+	}
+
+	@Test
+	public void testGetPoisonReversedDistanceVector() {
+		/*
+		 * New <me, 0>, <neighbor1, 1.4>, <neighbor2, 4.0> <me, 1.4>,
+		 * <neighbor1, 0>, <neighbor2, 2.6> <me, infinity>, <neighbor1,
+		 * infinity>, <neighbor2, infinity>
+		 * 
+		 * New Routing Table: <me, { me, 0 } > <neighbor1, { neighbor1, 1.4 } >
+		 * <neighbor2, { neighbor1, 4 } >
+		 */
+		Map<String, Map<String, Double>> otherDV = giveClientNormalDVAndRTWithNewNeighbor();
+
+		Map<String, Double> poisonReverseDV = clientNormal
+				.poisonReversedDistanceVector(neighbor1);
+		assertTrue(poisonReverseDV.get(neighbor2) == Double.POSITIVE_INFINITY);
+		String[] routingEntry = clientNormal.getRoutingTable().get(neighbor2);
+		assertEquals(routingEntry[0], neighbor1);
+		assertTrue(Double.parseDouble(routingEntry[1]) == clientNormal
+				.getDistanceVector().get(clientNormal.getLocalClientID())
+				.get(neighbor2));
+
+		otherDV.get(neighbor1).put(neighbor4, 3.19);
+		clientNormal
+				.updateDistanceVectorAndRoutingTableFromOtherDistanceVector(
+						neighbor1, otherDV.get(neighbor1));
+
+		poisonReverseDV = clientNormal.poisonReversedDistanceVector(neighbor1);
+		routingEntry = clientNormal.getRoutingTable().get(neighbor2);
+		assertEquals(routingEntry[0], neighbor1);
+		assertTrue(Double.parseDouble(routingEntry[1]) == clientNormal
+				.getDistanceVector().get(clientNormal.getLocalClientID())
+				.get(neighbor2));
+
+		routingEntry = clientNormal.getRoutingTable().get(neighbor4);
+		assertEquals(routingEntry[0], neighbor1);
+		assertTrue(Double.parseDouble(routingEntry[1]) == clientNormal
+				.getDistanceVector().get(clientNormal.getLocalClientID())
+				.get(neighbor4));
+	}
+
+	/*
+	 * Client normal's:
+	 * 
+	 * Initial DV: <me, 0>, <neighbor1, 1.4> <me, infinity>, <neighbor1,
+	 * infinity>
+	 * 
+	 * Initial routing table: <me, { me, 0 } > <neighbor1, { neighbor1, 1.4 } >
+	 * 
+	 * After update, should have the following:
+	 * 
+	 * new Distance Vector: <me, 0>, <neighbor1, 1.4>, <neighbor2, 4.0> <me,
+	 * 1.4>, <neighbor1, 0>, <neighbor2, 2.6> <me, infinity>, <neighbor1,
+	 * infinity>, <neighbor2, infinity>
+	 * 
+	 * New Routing Table: <me, { me, 0 } > <neighbor1, { neighbor1, 1.4 } >
+	 * <neighbor2, { neighbor1, 4 } >
+	 */
+	private Map<String, Map<String, Double>> giveClientNormalDVAndRTWithNewNeighbor() {
+		Map<String, Map<String, Double>> otherDV = new TreeMap<String, Map<String, Double>>();
+		String normalID = clientNormal.getLocalClientID();
+		otherDV.put(normalID, new TreeMap<String, Double>());
+		otherDV.get(normalID).put(normalID, Double.POSITIVE_INFINITY);
+		otherDV.get(normalID).put(neighbor1, Double.POSITIVE_INFINITY);
+		otherDV.get(normalID).put(neighbor2, Double.POSITIVE_INFINITY);
+
+		otherDV.put(neighbor1, new TreeMap<String, Double>());
+		otherDV.get(neighbor1).put(normalID, 1.4);
+		otherDV.get(neighbor1).put(neighbor1, 0.0);
+		otherDV.get(neighbor1).put(neighbor2, 2.6);
+
+		otherDV.put(neighbor2, new TreeMap<String, Double>());
+		otherDV.get(neighbor2).put(normalID, Double.POSITIVE_INFINITY);
+		otherDV.get(neighbor2).put(neighbor1, Double.POSITIVE_INFINITY);
+		otherDV.get(neighbor2).put(neighbor2, Double.POSITIVE_INFINITY);
+		clientNormal
+				.updateDistanceVectorAndRoutingTableFromOtherDistanceVector(
+						neighbor1, otherDV.get(neighbor1));
+
+		return otherDV;
 	}
 }
