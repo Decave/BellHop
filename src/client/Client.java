@@ -1,11 +1,14 @@
 package client;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
-import java.net.DatagramSocket;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
@@ -18,6 +21,9 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+
+import message.BellHopMessage;
+import message.RouteUpdateMessage;
 
 /**
  * 
@@ -43,6 +49,8 @@ public class Client {
 	private Map<String, String[]> routingTable = new TreeMap<String, String[]>();
 	private ByteBuffer writeBuffer = null;
 	private byte[] chunkBytes = null;
+	private ByteArrayOutputStream byteArrayOS = null;
+	private ObjectOutputStream objectOS = null;
 
 	/**
 	 * Constructor for Client object that sets isTest to false.
@@ -392,10 +400,37 @@ public class Client {
 
 		Thread clientReaderThread = new Thread(new ClientReaderThread(client));
 		clientReaderThread.start();
+
 		try {
+			ByteArrayInputStream byteArrayIS = null;
+			ObjectInputStream objectIS = null;
+			BellHopMessage message;
 			while (true) {
+				inputBuffer.clear();
 				client.getChannel().receive(inputBuffer);
 
+				byteArrayIS = new ByteArrayInputStream(inputBuffer.array());
+				objectIS = new ObjectInputStream(byteArrayIS);
+
+				message = (BellHopMessage) objectIS.readObject();
+
+				/*
+				 * If the received message if a __ROUTE-UPDATE__ message, update
+				 * your Distance Vector and routing tables, and send a route
+				 * update to your neighbors.
+				 */
+				if (message.getMessageType().equals("__ROUTE-UPDATE__")) {
+					String source = message.getPreviousHop();
+					Map<String, Double> otherDV = ((RouteUpdateMessage) message)
+							.getDistanceVector();
+
+					// Update DV and routing tables
+					client.updateDistanceVectorAndRoutingTableFromOtherDistanceVector(
+							source, otherDV);
+
+					// Send __ROUTE-UPDATE__ message to neighbors
+					client.sendRouteUpdates();
+				}
 			}
 
 		} catch (IOException e) {
@@ -405,6 +440,10 @@ public class Client {
 					+ " now.");
 			e.printStackTrace();
 			System.exit(1);
+		} catch (ClassNotFoundException e) {
+			System.err.println("You received a packet containing an object "
+					+ "whose class could not be determined.");
+			e.printStackTrace();
 		}
 	}
 
@@ -571,21 +610,22 @@ public class Client {
 	 * @param portNum
 	 */
 	public boolean transfer(String destinationIP, int portNum) {
-		writeBuffer.clear();
 		String destination = destinationIP + ":" + portNum;
-		if (routingTable == null
-				|| !routingTable.keySet().contains(destination)) {
+		if (!routingTable.keySet().contains(destination)) {
 			return false;
 		}
 
-		String transferString = createTransferStringHeader(destination);
+		String[] routingEntry = routingTable.get(destination);
+
+		String header = createTransferStringHeader(destination);
 
 		/*
 		 * Transform transferString into array of bytes and load it into the
 		 * writeBuffer
 		 */
 		try {
-			writeBuffer.put(transferString.getBytes());
+			writeBuffer.clear();
+			writeBuffer.put(header.getBytes());
 			writeBuffer.put(chunkBytes);
 		} catch (BufferOverflowException e) {
 			System.err.println("Unable to put contents of file into buffer."
@@ -596,6 +636,7 @@ public class Client {
 		writeBuffer.flip();
 
 		try {
+			System.out.println("Next node: " + routingEntry[0]);
 			channel.send(writeBuffer, new InetSocketAddress(destinationIP,
 					portNum));
 		} catch (IOException e) {
@@ -611,12 +652,109 @@ public class Client {
 	/**
 	 * Given a destination string parameter, create a header for the data that
 	 * will be sent in the Datagram.
+	 * 
+	 * @return Header for __TRANSFER__ message
 	 */
 	public String createTransferStringHeader(String destination) {
-		String retStr = "__TRANSFER__\n" + "Destination: " + destination + "\n"
-				+ "Previous hop: " + localClientID + "\n";
+		return "__TRANSFER__\n" + "Destination: " + destination + "\n"
+				+ "Previous hop: " + localClientID + "\n__TRANSFER__\n";
+	}
 
-		return retStr;
+	/**
+	 * Send a __ROUTE-UPDATE__ message to each neighbor, with Poison Reverse
+	 * being used in the Distance Vectors that are sent.
+	 */
+	public void sendRouteUpdates() {
+		Map<String, Double> tempDV;
+		String[] neighborIPPort = new String[2];
+		System.out.println("Sending __ROUTE-UPDATE__ messages.");
+
+		for (String neighbor : neighbors) {
+			writeBuffer.clear();
+
+			/*
+			 * For each neighbor, get a deeply copied, Poison-Reverse'd distance
+			 * vector and create a new RouteUpdateMessage object to send as a
+			 * Serialized object.
+			 */
+			tempDV = poisonReversedDistanceVector(neighbor);
+			neighborIPPort = neighbor.split(":");
+			RouteUpdateMessage routeUpdate = new RouteUpdateMessage(
+					localClientID, neighbor, tempDV);
+
+			System.out.println("Sending __ROUTE-UPDATE__ message to "
+					+ neighbor + " at " + routeUpdate.getDate() + ".");
+			try {
+				/*
+				 * Put new RouteUpdateMessage into a ByteArrayOutputStream and
+				 * put that into the writeBuffer to be sent.
+				 */
+				byteArrayOS = new ByteArrayOutputStream();
+				objectOS = new ObjectOutputStream(byteArrayOS);
+				objectOS.writeObject(routeUpdate);
+				objectOS.flush();
+
+				writeBuffer.put(byteArrayOS.toByteArray());
+
+				// Send __ROUTE-UPDATE__ message
+				channel.send(writeBuffer, new InetSocketAddress(
+						neighborIPPort[0], Integer.parseInt(neighborIPPort[1])));
+			} catch (IOException e) {
+				System.err.println("There was an error sending a "
+						+ "__ROUTE-UPDATE__ message to " + neighbor + ".");
+				e.printStackTrace();
+			}
+		}
+	}
+
+	/**
+	 * Given a String destination, return our local client's distance vector
+	 * with Poison Reverse.
+	 * 
+	 * @param neighbor
+	 */
+	public Map<String, Double> poisonReversedDistanceVector(String neighbor) {
+		Map<String, Double> poisonReverseDV = new TreeMap<String, Double>(
+				distanceVector.get(localClientID));
+
+		Set<String> destinations = destinationsForNextHop(neighbor);
+
+		/*
+		 * Iterate through each entry in the distance vector, and if any of the
+		 * entries are in destinations (if neighbor is a next hop for any of
+		 * them), set their weight to infinity.
+		 */
+		for (String entry : poisonReverseDV.keySet()) {
+			if (destinations.contains(entry)) {
+				poisonReverseDV.put(entry, Double.POSITIVE_INFINITY);
+			}
+		}
+
+		return poisonReverseDV;
+	}
+
+	public Set<String> destinationsForNextHop(String nextHop) {
+		Set<String> destinations = new HashSet<String>();
+
+		String[] routingEntry = new String[2];
+
+		/*
+		 * Go through each destination in the routing table, so that we can look
+		 * at its nextHop and see if it matches the String given as an argument.
+		 */
+		for (String destination : routingTable.keySet()) {
+			routingEntry = routingTable.get(destination);
+
+			/*
+			 * If nextHop (given as argument) is the nextHop client for this
+			 * route, add the destination to the set.
+			 */
+			if (routingEntry[0].equals(nextHop)) {
+				destinations.add(destination);
+			}
+		}
+
+		return destinations;
 	}
 
 	/**
