@@ -1,14 +1,22 @@
 package client;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
@@ -16,6 +24,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
+import java.util.Date;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -38,7 +47,8 @@ public class Client {
 	private String ipAddress;
 	private int readPort;
 	private String localClientID;
-	private File chunk;
+	private byte[] chunk;
+	private String chunkName;
 	private int sequenceNumber;
 	private DatagramChannel channel = null;
 	private double timeout;
@@ -50,6 +60,8 @@ public class Client {
 	private ByteBuffer writeBuffer = null;
 	private ByteArrayOutputStream byteArrayOS = null;
 	private ObjectOutputStream objectOS = null;
+	private Map<String, boolean[]> chunkTracker = null;
+	private Map<String, File> chunksReceived = new TreeMap<String, File>();
 
 	/**
 	 * Constructor for Client object that sets isTest to false.
@@ -459,6 +471,7 @@ public class Client {
 		Thread clientReaderThread = new Thread(new ClientReaderThread(client));
 		clientReaderThread.start();
 
+		// TODO: Add timer
 		try {
 			ByteArrayInputStream byteArrayIS = null;
 			ObjectInputStream objectIS = null;
@@ -472,12 +485,12 @@ public class Client {
 
 				message = (BellHopMessage) objectIS.readObject();
 
-				/*
-				 * If the received message if a __ROUTE-UPDATE__ message, update
-				 * your Distance Vector and routing tables, and send a route
-				 * update to your neighbors.
-				 */
 				if (message.getMessageType().equals("__ROUTE-UPDATE__")) {
+					/*
+					 * If the received message if a __ROUTE-UPDATE__ message,
+					 * update your Distance Vector and routing tables, and send
+					 * a route update to your neighbors.
+					 */
 					String source = message.getPreviousHop();
 					Map<String, Double> otherDV = ((RouteUpdateMessage) message)
 							.getDistanceVector();
@@ -488,6 +501,90 @@ public class Client {
 
 					// Send __ROUTE-UPDATE__ message to neighbors
 					client.sendRouteUpdates();
+				} else if (message.getMessageType().equals("__TRANSFER__")) {
+					/*
+					 * Otherwise, if message is a __TRANSFER__ message, then add
+					 * ourselves to the current path, and check if we are the
+					 * intended recipient. If we are the intended recipient,
+					 * perform chunk logic. Otherwise, forward the message on to
+					 * the intended recipient.
+					 */
+					String finalRecipient = ((TransferMessage) message)
+							.getIntendedRecipient();
+
+					// Add current localClientID to path of message.
+					((TransferMessage) message).addToPath(client
+							.getLocalClientID());
+
+					if (finalRecipient.equals(client.getLocalClientID())) {
+						/*
+						 * If we are the final recipient, the file contents are
+						 * for us. If this completes the chunk we're waiting for
+						 * (we have the other chunk sequence number), save the
+						 * concatenated chunks to an output file. Otherwise,
+						 * save current chunk if we don't have it yet, or ignore
+						 * the packet if we do.
+						 * 
+						 * TODO: Download chunk locally
+						 */
+						System.out.println("Received __TRANSFER__ message as "
+								+ "intended recipient. Printing status "
+								+ "message.");
+						System.out.println(((TransferMessage) message)
+								.getPathString());
+						int sequenceNumber = ((TransferMessage) message)
+								.getSequenceNumber() - 1;
+						String chunkName = ((TransferMessage) message)
+								.getChunkName();
+						File chunk = ((TransferMessage) message).getChunk();
+						if (!client.getChunkTracker().containsKey(chunkName)) {
+							/*
+							 * If we don't have a key in our Chunk tracker
+							 * corresponding to the chunkName received in the
+							 * transfer file, then add it to chunkTracker and
+							 * chunksReceived.
+							 */
+							boolean[] chunkReceived = new boolean[2];
+							chunkReceived[0] = false;
+							chunkReceived[1] = false;
+							chunkReceived[sequenceNumber] = true;
+							client.getChunkTracker().put(chunkName,
+									chunkReceived);
+							client.getChunksReceived().put(chunkName, chunk);
+						} else {
+							boolean[] chunkReceived = client.getChunkTracker()
+									.get(chunkName);
+							/*
+							 * If we've made it this far, one of the two boolean
+							 * values in chunkTracker must be true. Therefore,
+							 * if this sequence number corresponds to the false
+							 * chunkTracker sequence number (for this chunk
+							 * name), then we have received both chunks and can
+							 * download to a file.
+							 */
+							if (!chunkReceived[sequenceNumber]) {
+								System.out.println("Both parts of chunk "
+										+ chunkName + "received!"
+										+ " Saving to a file.");
+								FileWriter fstream;
+								OutputStream out;
+								if (sequenceNumber == 1) {
+									out = new BufferedOutputStream(
+											new FileOutputStream(
+													chunk.getName()));
+									out.write(chunk);
+								}
+							} else {
+								System.out.println("I already have chunk "
+										+ chunkName + "'s part "
+										+ sequenceNumber + "of this chunk."
+										+ " Ignoring packet.");
+							}
+						}
+
+					} else {
+						client.forwardTransferMessage((TransferMessage) message);
+					}
 				}
 			}
 
@@ -683,41 +780,62 @@ public class Client {
 		 * nextHop (routingEntry[0]) - destination - sequenceNumber - chunk
 		 */
 		TransferMessage transferMessage = new TransferMessage(localClientID,
-				routingEntry[0], destination, sequenceNumber, chunk);
+				routingEntry[0], destination, sequenceNumber, chunk, chunkName);
+		transferMessage.addToPath(localClientID);
 
-		System.out.println("Sending __TRANSFER__ message to " + destination
-				+ " at " + transferMessage.getDate() + ".");
+		return sendTransferMessage(transferMessage);
+	}
+
+	/**
+	 * Get a TransferMessage from main(String[] args) and forward it to its
+	 * intended recipient.
+	 * 
+	 * @param message
+	 */
+	private void forwardTransferMessage(TransferMessage message) {
+		message.setPreviousHop(localClientID);
+		String[] routingEntry = new String[2];
+		routingEntry = routingTable.get(message.getIntendedRecipient());
+		message.setDestination(routingEntry[0]);
+		message.setDate(new Date());
+
+		sendTransferMessage(message);
+	}
+
+	private boolean sendTransferMessage(TransferMessage message) {
+		System.out.println("Sending __TRANSFER__ message to "
+				+ message.getDestination() + " at " + message.getDate() + ".");
 		try {
 			writeBuffer.clear();
 			/*
-			 * Put new TransferMessage into a ByteArrayOutputStream and put
-			 * that into the writeBuffer to be sent.
+			 * Put new TransferMessage into a ByteArrayOutputStream and put that
+			 * into the writeBuffer to be sent.
 			 */
 			byteArrayOS = new ByteArrayOutputStream();
 			objectOS = new ObjectOutputStream(byteArrayOS);
-			objectOS.writeObject(transferMessage);
+			objectOS.writeObject(message);
 			objectOS.flush();
 
 			writeBuffer.put(byteArrayOS.toByteArray());
 
 			System.out.println(writeBuffer.toString());
-			
+
 			// Send __TRANSFER__ message
-			String[] nextHop = transferMessage.getDestination().split(":");
+			String[] nextHop = message.getDestination().split(":");
 			if (nextHop.length != 2) {
 				System.err.println("You provided an improperly formatted "
 						+ "destination address. Please try again.");
 				return false;
 			}
-			
+
 			channel.send(
 					writeBuffer,
 					new InetSocketAddress(nextHop[0], Integer
 							.parseInt(nextHop[1])));
 		} catch (IOException e) {
 			System.err.println("There was an error sending a "
-					+ "__TRANSFER__ message to "
-					+ transferMessage.getDestination() + ".");
+					+ "__TRANSFER__ message to " + message.getDestination()
+					+ ".");
 			e.printStackTrace();
 			return false;
 		}
@@ -892,11 +1010,38 @@ public class Client {
 		String[] portChunkSequence = getPortChunkSequence(reader);
 		this.readPort = Integer.parseInt(portChunkSequence[0]);
 		this.timeout = Double.parseDouble(portChunkSequence[1]);
-		this.chunk = new File(portChunkSequence[2]);
+		this.chunkName = portChunkSequence[2];
+		this.chunk = getBytesFromChunkName();
+		this.chunkTracker = new TreeMap<String, boolean[]>();
 		this.sequenceNumber = Integer.parseInt(portChunkSequence[3]);
 		this.localClientID = this.ipAddress + ":" + this.readPort;
 		this.distanceVector = createDVFromNeighbors(getNeighborsFromConfig(reader));
 		this.routingTable = createRoutingTableInitialDV();
+	}
+
+	private byte[] getBytesFromChunkName() {
+		if (chunkName == null || chunkName.equals("")) {
+			System.err.println("Your chunk does not have a name. Therefore, "
+					+ "I cannot find any files to send!");
+			return null;
+		}
+
+		File chunkFile = new File(chunkName);
+		byte[] retChunk = new byte[(int) chunkFile.length()];
+		try {
+			InputStream input = new BufferedInputStream(new FileInputStream(
+					chunkFile));
+			
+			int bytesRead = 0;
+			while (bytesRead < retChunk.length) {
+				int bytesRemainingInChunk = retChunk.length - bytesRead;
+			}
+
+		} catch (FileNotFoundException e) {
+			System.err.println("I couldn't find chunk " + chunkName + ". "
+					+ "Did you spell the file name correctly?");
+			return null;
+		}
 	}
 
 	/**
@@ -1075,4 +1220,15 @@ public class Client {
 		this.chunk = chunk;
 	}
 
+	public Map<String, boolean[]> getChunkTracker() {
+		return chunkTracker;
+	}
+
+	public String getChunkName() {
+		return chunkName;
+	}
+
+	public Map<String, File> getChunksReceived() {
+		return chunksReceived;
+	}
 }
