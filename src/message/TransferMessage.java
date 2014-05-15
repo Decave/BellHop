@@ -1,6 +1,5 @@
 package message;
 
-import java.io.File;
 import java.io.Serializable;
 import java.util.Date;
 import java.util.Iterator;
@@ -29,7 +28,7 @@ public class TransferMessage extends BellHopMessage implements Serializable {
 	/**
 	 * File to be transferred to INTENDED_RECIPIENT recipient
 	 */
-	private final File CHUNK;
+	private final byte[] CHUNK;
 
 	/**
 	 * Name of CHUNK
@@ -46,7 +45,7 @@ public class TransferMessage extends BellHopMessage implements Serializable {
 	 * @param chunk
 	 */
 	public TransferMessage(String previousHop, String destination,
-			String intendedRecipient, int sequenceNumber, File chunk,
+			String intendedRecipient, int sequenceNumber, byte[] chunk,
 			String chunkName) {
 		super(previousHop, destination);
 		this.INTENDED_RECIPIENT = intendedRecipient;
@@ -89,7 +88,7 @@ public class TransferMessage extends BellHopMessage implements Serializable {
 	 * 
 	 * @return
 	 */
-	public File getChunk() {
+	public byte[] getChunk() {
 		return CHUNK;
 	}
 	
@@ -120,7 +119,7 @@ public class TransferMessage extends BellHopMessage implements Serializable {
 	 */
 	public String getPathString() {
 		String retStr = "__TRANSFER__ Message\n\n";
-		retStr += "Size of chunk: " + CHUNK.length() + "\n";
+		retStr += "Size of chunk: " + CHUNK.length + "\n";
 		retStr += "Time: " + getDate() + "\n";
 		retStr += "Path:\n";
 		Iterator<String> pathIterator = getPath().iterator();

@@ -1,9 +1,7 @@
 package client;
 
-import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -11,9 +9,7 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
@@ -61,7 +57,7 @@ public class Client {
 	private ByteArrayOutputStream byteArrayOS = null;
 	private ObjectOutputStream objectOS = null;
 	private Map<String, boolean[]> chunkTracker = null;
-	private Map<String, File> chunksReceived = new TreeMap<String, File>();
+	private Map<String, byte[]> chunksReceived = new TreeMap<String, byte[]>();
 
 	/**
 	 * Constructor for Client object that sets isTest to false.
@@ -536,7 +532,7 @@ public class Client {
 								.getSequenceNumber() - 1;
 						String chunkName = ((TransferMessage) message)
 								.getChunkName();
-						File chunk = ((TransferMessage) message).getChunk();
+						byte[] chunk = ((TransferMessage) message).getChunk();
 						if (!client.getChunkTracker().containsKey(chunkName)) {
 							/*
 							 * If we don't have a key in our Chunk tracker
@@ -566,15 +562,35 @@ public class Client {
 								System.out.println("Both parts of chunk "
 										+ chunkName + "received!"
 										+ " Saving to a file.");
-								FileWriter fstream;
 								OutputStream out;
 								if (sequenceNumber == 1) {
+									/*
+									 * If sequence number is 1, write the chunk
+									 * you just received fist, then the one in
+									 * chunksReceived
+									 */
 									out = new BufferedOutputStream(
-											new FileOutputStream(
-													chunk.getName()));
+											new FileOutputStream(chunkName));
+									out.write(chunk);
+									out.write(client.getChunksReceived().get(
+											chunkName));
+								} else {
+									/*
+									 * Otherwise, write the chunk in
+									 * chunksReceived first
+									 */
+									out = new BufferedOutputStream(
+											new FileOutputStream(chunkName));
+									out.write(client.getChunksReceived().get(
+											chunkName));
 									out.write(chunk);
 								}
 							} else {
+								/*
+								 * Otherwise, we already had the sequence number
+								 * corresponding to this chunk, so we can drop
+								 * the packet
+								 */
 								System.out.println("I already have chunk "
 										+ chunkName + "'s part "
 										+ sequenceNumber + "of this chunk."
@@ -1029,19 +1045,19 @@ public class Client {
 		File chunkFile = new File(chunkName);
 		byte[] retChunk = new byte[(int) chunkFile.length()];
 		try {
-			InputStream input = new BufferedInputStream(new FileInputStream(
-					chunkFile));
-			
-			int bytesRead = 0;
-			while (bytesRead < retChunk.length) {
-				int bytesRemainingInChunk = retChunk.length - bytesRead;
-			}
+			FileInputStream input = new FileInputStream(chunkFile);
+			input.read(retChunk, 0, retChunk.length);
+			input.close();
 
 		} catch (FileNotFoundException e) {
 			System.err.println("I couldn't find chunk " + chunkName + ". "
 					+ "Did you spell the file name correctly?");
 			return null;
+		} catch (IOException e) {
+			System.err.println("There was reading your chunk file");
 		}
+
+		return retChunk;
 	}
 
 	/**
@@ -1212,11 +1228,11 @@ public class Client {
 		this.writeBuffer = writeBuffer;
 	}
 
-	public File getChunk() {
+	public byte[] getChunk() {
 		return chunk;
 	}
 
-	public void setChunk(File chunk) {
+	public void setChunk(byte[] chunk) {
 		this.chunk = chunk;
 	}
 
@@ -1228,7 +1244,7 @@ public class Client {
 		return chunkName;
 	}
 
-	public Map<String, File> getChunksReceived() {
+	public Map<String, byte[]> getChunksReceived() {
 		return chunksReceived;
 	}
 }
