@@ -13,6 +13,8 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
@@ -46,18 +48,16 @@ public class Client {
 	private byte[] chunk;
 	private String chunkName;
 	private int sequenceNumber;
-	private DatagramChannel channel = null;
+	private DatagramSocket socket = null;
 	private double timeout;
 	private Set<String> neighbors = new HashSet<String>();
 	private Map<String, Map<String, Double>> distanceVector = null;
 	private Object dvRTLock = new Object();
 	private boolean isTest = false;
 	private Map<String, String[]> routingTable = new TreeMap<String, String[]>();
-	private ByteBuffer writeBuffer = null;
-	private ByteArrayOutputStream byteArrayOS = null;
-	private ObjectOutputStream objectOS = null;
 	private Map<String, boolean[]> chunkTracker = null;
 	private Map<String, byte[]> chunksReceived = new TreeMap<String, byte[]>();
+	private Map<String, ClientDatagramSender> senders = new TreeMap<String, ClientDatagramSender>();
 
 	/**
 	 * Constructor for Client object that sets isTest to false.
@@ -136,6 +136,8 @@ public class Client {
 		this.distanceVector = new TreeMap<String, Map<String, Double>>();
 
 		for (String neighbor : neighbors.keySet()) {
+			ClientDatagramSender helper = new ClientDatagramSender(neighbor);
+			senders.put(neighbor, helper);
 			distanceVector.put(neighbor, new TreeMap<String, Double>());
 			distanceVector.get(neighbor).put(localClientID,
 					Double.POSITIVE_INFINITY);
@@ -447,9 +449,8 @@ public class Client {
 	}
 
 	public static void main(String[] args) {
-		if ((args.length < 1 || args.length > 2) && (args.length == 2)
-				&& (!args[1].equals("")) && !args[1].contains("--timeout")) {
-			System.err.println("Usage: bfclient <config-file> [--timeout]");
+		if (args.length != 1 || args[0] == null || args[0].equals("")) {
+			System.err.println("Usage: bfclient <config-file> ");
 			System.exit(1);
 		}
 
@@ -458,60 +459,53 @@ public class Client {
 		 */
 		Double timeoutValue = 60.0;
 		String configFile = args[0].trim();
-		if (args.length == 2 && args[1].contains("--timeout=")) {
-			String[] timeoutArg = args[1].split("=");
-			try {
-				timeoutValue = Double.parseDouble(timeoutArg[1].trim());
-			} catch (NumberFormatException e) {
-				System.err.println("You must provide a numerical value for "
-						+ "the timeout parameter. Using a default of 60.");
-				timeoutValue = 60.0;
-			}
-		}
-
-		ByteBuffer inputBuffer = ByteBuffer.allocate(1024);
-		inputBuffer.clear();
 
 		Client client = new Client(timeoutValue, configFile);
-		
-		Thread clientReaderThread = new Thread(new ClientReaderThread(client));
-		clientReaderThread.start();
-		
-		System.out.println("You are now listening on the following "
-				+ "IPAddress:Port channel: "
-				+ client.getLocalClientID());
 
-		// TODO: Add timer
 		try {
-			ByteArrayInputStream byteArrayIS = null;
-			ObjectInputStream objectIS = null;
-			BellHopMessage message;
+			// Open Datagram Socket, through which UDP Segments can be
+			// sent.
+			InetSocketAddress address = new InetSocketAddress(
+					client.getIpAddress(), client.getReadPort());
+			DatagramSocket socket = new DatagramSocket(address);
+			client.setSocket(socket);
+
+			Thread clientReaderThread = new Thread(new ClientReaderThread(
+					client));
+			clientReaderThread.start();
+
+			System.out.println("You are now listening on the following "
+					+ "IPAddress:Port channel: " + client.getLocalClientID());
+
+			FileOutputStream fos = null;
 			while (true) {
-				inputBuffer.clear();
-				client.getChannel().receive(inputBuffer);
-				byte[] data = new byte[inputBuffer.capacity()];
-				inputBuffer.get(data);
-				
-				/*
-				 * Troubleshooting: inputBuffer is returning with something
-				 */
-				
-				byteArrayIS = new ByteArrayInputStream(data);
-				objectIS = new ObjectInputStream(byteArrayIS);
-				
-				message = (BellHopMessage) objectIS.readObject();
-				
+				byte[] data = new byte[64000];
+				DatagramPacket packet = new DatagramPacket(data, data.length,
+						address);
+				socket.receive(packet);
+
+				String fullMessage = new String(packet.getData(), 0,
+						packet.getLength()).trim();
+
+				String[] headerAndMessage = fullMessage.split("#");
+				String header = headerAndMessage[0];
+				String message = headerAndMessage[1];
+				String messageAndPath[] = message.split("&");
+				String chunk = messageAndPath[0];
+
 				System.out.println("Received packet! Processing...");
-				
-				if (message.getMessageType().equals("__ROUTE-UPDATE__")) {
+
+				String[] headerVals = header.split("|");
+
+				if (headerVals[0].equals("__ROUTE-UPDATE__")) {
 					/*
 					 * If the received message if a __ROUTE-UPDATE__ message,
 					 * update your Distance Vector and routing tables, and send
 					 * a route update to your neighbors.
 					 */
-					String source = message.getPreviousHop();
-					Map<String, Double> otherDV = ((RouteUpdateMessage) message)
-							.getDistanceVector();
+					String source = headerVals[2];
+					Map<String, Double> otherDV = client
+							.getDVFromRouteUpdateMessage(message);
 
 					// Update DV and routing tables
 					client.updateDistanceVectorAndRoutingTableFromOtherDistanceVector(
@@ -519,7 +513,8 @@ public class Client {
 
 					// Send __ROUTE-UPDATE__ message to neighbors
 					client.sendRouteUpdates();
-				} else if (message.getMessageType().equals("__TRANSFER__")) {
+
+				} else if (headerVals[0].equals("__TRANSFER__")) {
 					/*
 					 * Otherwise, if message is a __TRANSFER__ message, then add
 					 * ourselves to the current path, and check if we are the
@@ -527,14 +522,10 @@ public class Client {
 					 * perform chunk logic. Otherwise, forward the message on to
 					 * the intended recipient.
 					 */
-					String finalRecipient = ((TransferMessage) message)
-							.getIntendedRecipient();
+					String intendedRecipient = headerVals[1];
+					int chunkSequence = Integer.parseInt(headerVals[4]);
 
-					// Add current localClientID to path of message.
-					((TransferMessage) message).addToPath(client
-							.getLocalClientID());
-
-					if (finalRecipient.equals(client.getLocalClientID())) {
+					if (intendedRecipient.equals(client.getLocalClientID())) {
 						/*
 						 * If we are the final recipient, the file contents are
 						 * for us. If this completes the chunk we're waiting for
@@ -546,80 +537,44 @@ public class Client {
 						System.out.println("Received __TRANSFER__ message as "
 								+ "intended recipient. Printing status "
 								+ "message.");
-						System.out.println(((TransferMessage) message)
-								.getPathString());
-						int sequenceNumber = ((TransferMessage) message)
-								.getSequenceNumber() - 1;
-						String chunkName = ((TransferMessage) message)
-								.getChunkName();
-						byte[] chunk = ((TransferMessage) message).getChunk();
-						if (!client.getChunkTracker().containsKey(chunkName)) {
-							/*
-							 * If we don't have a key in our Chunk tracker
-							 * corresponding to the chunkName received in the
-							 * transfer file, then add it to chunkTracker and
-							 * chunksReceived.
-							 */
-							boolean[] chunkReceived = new boolean[2];
-							chunkReceived[0] = false;
-							chunkReceived[1] = false;
-							chunkReceived[sequenceNumber] = true;
-							client.getChunkTracker().put(chunkName,
-									chunkReceived);
-							client.getChunksReceived().put(chunkName, chunk);
-						} else {
-							boolean[] chunkReceived = client.getChunkTracker()
-									.get(chunkName);
-							/*
-							 * If we've made it this far, one of the two boolean
-							 * values in chunkTracker must be true. Therefore,
-							 * if this sequence number corresponds to the false
-							 * chunkTracker sequence number (for this chunk
-							 * name), then we have received both chunks and can
-							 * download to a file.
-							 */
-							if (!chunkReceived[sequenceNumber]) {
-								System.out.println("Both parts of chunk "
-										+ chunkName + "received!"
-										+ " Saving to a file.");
-								OutputStream out;
-								if (sequenceNumber == 1) {
-									/*
-									 * If sequence number is 1, write the chunk
-									 * you just received fist, then the one in
-									 * chunksReceived
-									 */
-									out = new BufferedOutputStream(
-											new FileOutputStream(chunkName));
-									out.write(chunk);
-									out.write(client.getChunksReceived().get(
-											chunkName));
-								} else {
-									/*
-									 * Otherwise, write the chunk in
-									 * chunksReceived first
-									 */
-									out = new BufferedOutputStream(
-											new FileOutputStream(chunkName));
-									out.write(client.getChunksReceived().get(
-											chunkName));
-									out.write(chunk);
-								}
+						client.printStatusMessageFromTransfer(message);
+						String sender = client.updateChunkReceived(message,
+								--chunkSequence);
+						boolean[] chunkReceived = client.getChunkTracker().get(
+								sender);
+
+						if (chunkReceived[0] && chunkReceived[1]) {
+							System.out.println("Both parts of the chunk from "
+									+ sender + "have arrived!"
+									+ " Saving to a file.");
+							String fullChunk;
+							if (chunkSequence == 0) {
+								fullChunk = chunk;
+								fullChunk += client.getChunksReceived()
+										.get(sender).toString();
 							} else {
-								/*
-								 * Otherwise, we already had the sequence number
-								 * corresponding to this chunk, so we can drop
-								 * the packet
-								 */
-								System.out.println("I already have chunk "
-										+ chunkName + "'s part "
-										+ sequenceNumber + "of this chunk."
-										+ " Ignoring packet.");
+								fullChunk = client.getChunksReceived()
+										.get(sender).toString();
+								fullChunk += chunk;
 							}
+
+							String chunkName = sender + "_chunk";
+							fos = new FileOutputStream(chunkName);
+							fos.write(fullChunk.getBytes());
+							fos.close();
+							
+							System.out.println("You have succesfully received "
+									+ "and saved chunk " + chunkName + ".");
+						} else if (chunkReceived[0] || chunkReceived[1]) {
+							System.out.println("I already have " + sender
+									+ "'s" + chunkSequence
+									+ "th part of this chunk."
+									+ " Ignoring packet.");
 						}
 
 					} else {
-						client.forwardTransferMessage((TransferMessage) message);
+						client.forwardTransferMessage(intendedRecipient,
+								message, chunkSequence);
 					}
 				}
 			}
@@ -631,11 +586,70 @@ public class Client {
 					+ " now.");
 			e.printStackTrace();
 			System.exit(1);
-		} catch (ClassNotFoundException e) {
-			System.err.println("You received a packet containing an object "
-					+ "whose class could not be determined.");
-			e.printStackTrace();
 		}
+	}
+
+	/**
+	 * Given a destination string parameter, create a header for the data that
+	 * will be sent in the Datagram.
+	 */
+	public String createTransferStringHeader(String intendedRecipient,
+			String destination, int chunkSequence) {
+		String retStr = "__TRANSFER__" + "|" + intendedRecipient + "|"
+				+ destination + "|" + localClientID + "|" + chunkSequence + "#";
+
+		return retStr;
+	}
+
+	/**
+	 * Given a destination string parameter, create a header for the data that
+	 * will be sent in the Datagram.
+	 */
+	public String createRouteUpdateStringHeader(String destination) {
+		String retStr = "__ROUTE-UPDATE__" + "|" + destination + "|"
+				+ localClientID + "#";
+
+		return retStr;
+	}
+
+	/**
+	 * Take the local distance vector, and transform it into a string to be
+	 * passed into a __ROUTE-UPDATE__ message. Entries are separated by the "^"
+	 * character, and an entry is separated from its weight by the "_"
+	 * character.
+	 * 
+	 * @return String version of Distance Vector
+	 */
+	public String createDVStringForRouteUpdate(Map<String, Double> dv) {
+		String retStr = "";
+
+		for (String entry : dv.keySet()) {
+			retStr += "^" + entry + "_" + dv.get(entry);
+		}
+
+		return retStr;
+	}
+
+	/**
+	 * Given the body of a message from a __ROUTE-UPDATE__ message, extract the
+	 * new distance vector and transform it into a Map.
+	 * 
+	 * @param message
+	 * @return
+	 */
+	public Map<String, Double> getDVFromRouteUpdateMessage(String message) {
+		Map<String, Double> newDV = new TreeMap<String, Double>();
+
+		String[] entries = message.split("^");
+		for (String pairs : entries) {
+			String[] pair = pairs.split("_");
+			String entry = pair[0];
+			Double weight = Double.parseDouble(pair[1]);
+
+			newDV.put(entry, weight);
+		}
+
+		return newDV;
 	}
 
 	/**
@@ -791,6 +805,49 @@ public class Client {
 		return retStr.toString();
 	}
 
+	public String updateChunkReceived(String message, int chunkNumber) {
+		String[] chunkAndPath = message.split("&");
+
+		String[] paths = chunkAndPath[1].split("@");
+
+		if (!chunksReceived.keySet().contains(paths[0])) {
+			chunksReceived.put(paths[0], chunkAndPath[0].getBytes());
+			boolean[] sequenceNumbers = new boolean[2];
+			sequenceNumbers[0] = false;
+			sequenceNumbers[1] = false;
+			sequenceNumbers[chunkNumber] = true;
+			chunkTracker.put(paths[0], sequenceNumbers);
+		} else {
+			boolean[] sequenceNumbers = new boolean[2];
+			sequenceNumbers[0] = true;
+			sequenceNumbers[1] = true;
+			chunkTracker.put(paths[0], sequenceNumbers);
+		}
+
+		return paths[0];
+	}
+
+	public String getStatusMessageFromTransfer(String message) {
+		String[] chunkAndPath = message.split("&");
+
+		String[] paths = chunkAndPath[1].split("@");
+
+		String statusMessage = "Path traversed by __TRANSFER__ method:\n";
+		for (int i = 0; i < paths.length; i++) {
+
+			statusMessage += "Destination " + i + ": " + paths[i] + "\n";
+		}
+
+		statusMessage += "Time received: " + new Date() + "\n";
+		statusMessage += "Size of chunk received: " + chunkAndPath[0].length();
+
+		return statusMessage;
+	}
+
+	public void printStatusMessageFromTransfer(String message) {
+		System.out.println(getStatusMessageFromTransfer(message));
+	}
+
 	/**
 	 * Given a destination IP and port number, print out the next hop in the
 	 * path to the destination, and send the Datagram towards the destination,
@@ -800,84 +857,71 @@ public class Client {
 	 * 
 	 * @param portNum
 	 */
-	public boolean transfer(String destinationIP, int portNum) {
+	public void transfer(String destinationIP, int portNum) {
 		String destination = destinationIP + ":" + portNum;
 		if (!routingTable.keySet().contains(destination)) {
 			System.err.println("You tried to send a chunk to a destination "
 					+ "that does not exist: " + destination);
-			return false;
 		}
 
 		String[] routingEntry = new String[2];
 		routingEntry = routingTable.get(destination);
 
-		/*
-		 * Populate TransferMessage with: - previousHop (localClientID) -
-		 * nextHop (routingEntry[0]) - destination - sequenceNumber - chunk
-		 */
-		TransferMessage transferMessage = new TransferMessage(localClientID,
-				routingEntry[0], destination, sequenceNumber, chunk, chunkName);
-		transferMessage.addToPath(localClientID);
+		String nextHop = routingEntry[0];
 
-		return sendTransferMessage(transferMessage);
+		String message = createTransferStringHeader(destination, nextHop,
+				sequenceNumber);
+
+		message += chunk.toString() + "&";
+
+		message += localClientID;
+
+		sendTransferMessage(destination, nextHop, localClientID, message);
 	}
 
 	/**
-	 * Get a TransferMessage from main(String[] args) and forward it to its
-	 * intended recipient.
+	 * Get a set of String arguments from main(String[] args), forward a
+	 * __TRANSFER__ message to its intended recipient.
 	 * 
 	 * @param message
 	 */
-	private void forwardTransferMessage(TransferMessage message) {
-		message.setPreviousHop(localClientID);
+	private void forwardTransferMessage(String intendedRecipient,
+			String message, int chunkSequence) {
+		String nextHop;
 		String[] routingEntry = new String[2];
-		routingEntry = routingTable.get(message.getIntendedRecipient());
-		message.setDestination(routingEntry[0]);
-		message.setDate(new Date());
+		routingEntry = routingTable.get(intendedRecipient);
+		nextHop = routingEntry[0];
 
-		sendTransferMessage(message);
+		sendTransferMessage(intendedRecipient, nextHop, localClientID, message,
+				chunkSequence);
 	}
 
-	private boolean sendTransferMessage(TransferMessage message) {
-		System.out.println("Sending __TRANSFER__ message to "
-				+ message.getDestination() + " at " + message.getDate() + ".");
-		try {
-			writeBuffer.clear();
-			/*
-			 * Put new TransferMessage into a ByteArrayOutputStream and put that
-			 * into the writeBuffer to be sent.
-			 */
-			byteArrayOS = new ByteArrayOutputStream(writeBuffer.capacity());
-			objectOS = new ObjectOutputStream(byteArrayOS);
-			objectOS.writeObject(message);
-			objectOS.flush();
+	private void sendTransferMessage(String intendedRecipient, String nextHop,
+			String lastHop, String message) {
 
-			writeBuffer.put(byteArrayOS.toByteArray());
-			writeBuffer.flip();
-			
-			System.out.println(writeBuffer.toString());
+		String sendMessage = createTransferStringHeader(intendedRecipient,
+				nextHop, sequenceNumber);
+		sendMessage += message;
+		sendMessage += "@" + localClientID;
+		System.out.println("Forwarding __TRANSFER__ message, destined for "
+				+ intendedRecipient + ", by way of " + nextHop + " at "
+				+ new Date() + ".");
+		ClientDatagramSender helper = senders.get(nextHop);
+		helper.sendPacketToNeighbor(sendMessage.getBytes());
+	}
 
-			// Send __TRANSFER__ message
-			String[] nextHop = message.getDestination().split(":");
-			if (nextHop.length != 2) {
-				System.err.println("You provided an improperly formatted "
-						+ "destination address. Please try again.");
-				return false;
-			}
+	private void sendTransferMessage(String intendedRecipient, String nextHop,
+			String lastHop, String message, int chunkSequence) {
 
-			channel.send(
-					writeBuffer,
-					new InetSocketAddress(nextHop[0], Integer
-							.parseInt(nextHop[1])));
-		} catch (IOException e) {
-			System.err.println("There was an error sending a "
-					+ "__TRANSFER__ message to " + message.getDestination()
-					+ ".");
-			e.printStackTrace();
-			return false;
-		}
-
-		return true;
+		String sendMessage = createTransferStringHeader(intendedRecipient,
+				nextHop, chunkSequence);
+		sendMessage += message;
+		sendMessage += "@" + localClientID;
+		System.out.println("Forwarding __TRANSFER__ message, destined for "
+				+ intendedRecipient + ", by way of " + nextHop + " at "
+				+ new Date() + ".");
+		ClientDatagramSender helper = senders.get(nextHop);
+		helper.sendPacketToNeighbor(sendMessage.getBytes());
 	}
 
 	/**
@@ -885,47 +929,27 @@ public class Client {
 	 * being used in the Distance Vectors that are sent.
 	 */
 	public void sendRouteUpdates() {
-		Map<String, Double> tempDV;
-		String[] neighborIPPort = new String[2];
 		System.out.println("Sending __ROUTE-UPDATE__ messages.");
 
 		for (String neighbor : neighbors) {
-			writeBuffer.clear();
-
 			/*
 			 * For each neighbor, get a deeply copied, Poison-Reverse'd distance
 			 * vector and create a new RouteUpdateMessage object to send as a
 			 * Serialized object.
 			 */
-			tempDV = poisonReversedDistanceVector(neighbor);
-			neighborIPPort = neighbor.split(":");
-			RouteUpdateMessage routeUpdate = new RouteUpdateMessage(
-					localClientID, neighbor, tempDV);
+			Map<String, Double> tempDV = poisonReversedDistanceVector(neighbor);
+
+			String header = createRouteUpdateStringHeader(neighbor);
+			String stringDV = createDVStringForRouteUpdate(tempDV);
+
+			String message = header + stringDV;
+			ClientDatagramSender sender = senders.get(neighbor);
+			sender.sendPacketToNeighbor(message.getBytes());
 
 			System.out.println("Sending __ROUTE-UPDATE__ message to "
-					+ neighbor + " at " + routeUpdate.getDate() + ".");
-			try {
-				/*
-				 * Put new RouteUpdateMessage into a ByteArrayOutputStream and
-				 * put that into the writeBuffer to be sent.
-				 */
-				byteArrayOS = new ByteArrayOutputStream();
-				objectOS = new ObjectOutputStream(byteArrayOS);
-				objectOS.writeObject(routeUpdate);
-				objectOS.flush();
-
-				writeBuffer.put(byteArrayOS.toByteArray());
-				writeBuffer.flip();
-				
-				// Send __ROUTE-UPDATE__ message
-				channel.send(writeBuffer, new InetSocketAddress(
-						neighborIPPort[0], Integer.parseInt(neighborIPPort[1])));
-			} catch (IOException e) {
-				System.err.println("There was an error sending a "
-						+ "__ROUTE-UPDATE__ message to " + neighbor + ".");
-				e.printStackTrace();
-			}
+					+ neighbor + " at " + new Date() + ".");
 		}
+
 	}
 
 	/**
@@ -1017,25 +1041,7 @@ public class Client {
 		}
 
 		this.isTest = isTest;
-
-		// Open Datagram channel, through which UDP Segments can be
-		// received and sent.
-		try {
-			this.channel = DatagramChannel.open();
-			this.channel.socket().bind(new InetSocketAddress(readPort));
-			channel.configureBlocking(true);
-		} catch (IOException e) {
-			if (!this.isTest) {
-				System.err.println("There was an error opening up your "
-						+ "read-only Datagram Channel on port " + readPort);
-				e.printStackTrace();
-			}
-		}
-
 		this.timeout = timeout;
-
-		writeBuffer = ByteBuffer.allocate(64000);
-		writeBuffer.clear();
 	}
 
 	/**
@@ -1177,12 +1183,12 @@ public class Client {
 		this.sequenceNumber = sequenceNumber;
 	}
 
-	public DatagramChannel getChannel() {
-		return channel;
+	public DatagramSocket getSocket() {
+		return socket;
 	}
 
-	public void setChannel(DatagramChannel channel) {
-		this.channel = channel;
+	public void setSocket(DatagramSocket socket) {
+		this.socket = socket;
 	}
 
 	public double getTimeout() {
@@ -1240,14 +1246,6 @@ public class Client {
 
 	public void setNeighbors(Set<String> neighbors) {
 		this.neighbors = neighbors;
-	}
-
-	public ByteBuffer getWriteBuffer() {
-		return writeBuffer;
-	}
-
-	public void setWriteBuffer(ByteBuffer writeBuffer) {
-		this.writeBuffer = writeBuffer;
 	}
 
 	public byte[] getChunk() {
