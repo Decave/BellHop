@@ -62,10 +62,8 @@ public class ClientTest {
 		} catch (IllegalArgumentException e) {
 		}
 
-		assertNotNull(clientThreeNeighbors.getChunkBytes());
-		assertNotNull(clientNormal.getChunkBytes());
-		assertNotNull(clientThreeNeighbors.getChunkFile());
-		assertNotNull(clientNormal.getChunkFile());
+		assertNotNull(clientThreeNeighbors.getChunk());
+		assertNotNull(clientNormal.getChunk());
 	}
 
 	@Test
@@ -429,17 +427,10 @@ public class ClientTest {
 		otherDV.put(neighbor2, 27.0);
 		otherDV.put(neighbor1, 13.4);
 		
-		clientNormal.printLocalDistanceVector();
-		System.out.println("\n" + clientNormal.createShowRtString());
-		
 		clientNormal
 				.updateDistanceVectorAndRoutingTableFromOtherDistanceVector(
 						clientNormalID, otherDV);
 		
-		System.out.println("\n\n");
-		clientNormal.printLocalDistanceVector();
-		System.out.println("\n" + clientNormal.createShowRtString());
-
 		newDV = clientNormal.getDistanceVector();
 		newRT = clientNormal.getRoutingTable();
 		neighbor2Entry = newRT.get(neighbor2);

@@ -2,6 +2,8 @@ package message;
 
 import java.io.Serializable;
 import java.util.Date;
+import java.util.LinkedList;
+import java.util.List;
 
 /**
  * BellHop abstract for getting the type of message being sent between
@@ -16,6 +18,7 @@ public abstract class BellHopMessage implements Serializable {
 	private String previousHop;
 	private String destination;
 	private Date date;
+	private List<String> path = new LinkedList<String>();
 	
 	private static final long serialVersionUID = 13877183454918L;
 
@@ -66,4 +69,48 @@ public abstract class BellHopMessage implements Serializable {
 	 * @return String
 	 */
 	public abstract String getMessageType();
+
+	/**
+	 * Set previousHop to client currently sending packet
+	 * 
+	 * @param previousHop localClientID of Client sending packet
+	 */
+	public void setPreviousHop(String previousHop) {
+		this.previousHop = previousHop;
+	}
+
+	/**
+	 * Set destination to client to whom packet will next be transferred 
+	 * @param destination ipAddress:Port string of receiving Client
+	 */
+	public void setDestination(String destination) {
+		this.destination = destination;
+	}
+
+	/**
+	 * Set Date / Time of packet to be when transmitted by sending Client.
+	 * 
+	 * @param date
+	 */
+	public void setDate(Date date) {
+		this.date = date;
+	}
+	
+	/**
+	 * Add an ipAddress:Port String to the path of a packet
+	 * 
+	 * @param clientAddress
+	 */
+	public void addToPath(String clientAddress) {
+		path.add(clientAddress);
+	}
+	
+	/**
+	 * Get the path of a packet
+	 * 
+	 * @return
+	 */
+	public List<String> getPath() {
+		return this.path;
+	}
 }

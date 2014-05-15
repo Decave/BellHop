@@ -56,5 +56,4 @@ public class ClientReaderThreadTest {
 		assertFalse(realThread.processInput("showrt k"));
 		assertFalse(realThread.processInput("transfer 83.881.67.311:8831"));
 	}
-
 }
