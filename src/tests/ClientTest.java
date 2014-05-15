@@ -38,27 +38,27 @@ public class ClientTest {
 	protected File configImproperFirstLine = new File("configImproperFirstLine");
 	protected File configImproperNeighbor = new File("configImproperNeighbor");
 	protected File configNormal = new File("configLoadNormal");
-	protected Client clientNormal = new Client(67.31,
-			configNormal.getAbsolutePath(), true);
+	protected Client clientNormal = new Client(configNormal.getAbsolutePath(),
+			true);
 	protected String clientNormalID = clientNormal.getLocalClientID();
-	protected Client clientThreeNeighbors = new Client(60.0,
+	protected Client clientThreeNeighbors = new Client(
 			configThreeNeighbors.getAbsolutePath(), true);
 	protected String clientThreeID = clientThreeNeighbors.getLocalClientID();
-	protected Client clientNoNeighbors = new Client(31.3,
+	protected Client clientNoNeighbors = new Client(
 			configNoNeighbors.getAbsolutePath(), true);
 	protected static String fakeTime = "00:16:33";
 
 	@Test
 	public void testClientConstructor() {
 		try {
-			Client clientImproperFirstLine = new Client(93.331,
+			Client clientImproperFirstLine = new Client(
 					configImproperFirstLine.getAbsolutePath(), true);
 			fail();
 		} catch (IllegalArgumentException e) {
 		}
 
 		try {
-			Client clientImproperNeighbor = new Client(381.3,
+			Client clientImproperNeighbor = new Client(
 					configImproperNeighbor.getAbsolutePath(), true);
 			fail();
 		} catch (IllegalArgumentException e) {
@@ -66,6 +66,8 @@ public class ClientTest {
 
 		assertNotNull(clientThreeNeighbors.getChunk());
 		assertNotNull(clientNormal.getChunk());
+		assertTrue(clientThreeNeighbors.getTimeout() == 60);
+		assertTrue(clientNormal.getTimeout() == 38);
 	}
 
 	@Test
@@ -185,9 +187,9 @@ public class ClientTest {
 		 * Test that method with incorrect parameters won't tear down links or
 		 * change weight, and return false.
 		 */
-		assertFalse(clientThreeNeighbors.linkdown("74.73.139.668", 3134));
-		assertFalse(clientThreeNeighbors.linkdown("74.73.139.223", 7881));
-		assertFalse(clientThreeNeighbors.linkdown("74.73.139.233", 6661));
+		assertFalse(clientThreeNeighbors.linkdown("74.73.139.668", 3134, true));
+		assertFalse(clientThreeNeighbors.linkdown("74.73.139.223", 7881, true));
+		assertFalse(clientThreeNeighbors.linkdown("74.73.139.233", 6661, true));
 		assertFalse(clientThreeNeighbors.hasLink("74.73.139.668:3134"));
 		assertTrue(clientThreeNeighbors.hasLink(neighbor1));
 		assertTrue(clientThreeNeighbors.hasLink(neighbor2));
@@ -196,7 +198,7 @@ public class ClientTest {
 		/*
 		 * Test that client with no neighbors gets false when tearing link down.
 		 */
-		assertFalse(clientNoNeighbors.linkdown("74.73.139.228", 3131));
+		assertFalse(clientNoNeighbors.linkdown("74.73.139.228", 3131, true));
 
 		/*
 		 * Test that correct linkdown changes weight and returns true
@@ -205,12 +207,12 @@ public class ClientTest {
 		assertTrue(clientThreeNeighbors.distanceVectorHasWeight(neighbor2, 2.3));
 		assertTrue(clientThreeNeighbors
 				.distanceVectorHasWeight(neighbor3, 10.0));
-		assertTrue(clientThreeNeighbors.linkdown("74.73.139.228", 3131));
+		assertTrue(clientThreeNeighbors.linkdown("74.73.139.228", 3131, true));
 		assertTrue(clientThreeNeighbors.distanceVectorHasWeight(neighbor1, 1.4));
 		assertTrue(clientThreeNeighbors.distanceVectorHasWeight(neighbor2, 2.3));
 		assertTrue(clientThreeNeighbors.distanceVectorHasWeight(neighbor3,
 				Double.POSITIVE_INFINITY));
-		assertTrue(clientThreeNeighbors.linkdown("74.73.139.233", 7881));
+		assertTrue(clientThreeNeighbors.linkdown("74.73.139.233", 7881, true));
 		assertTrue(clientThreeNeighbors.hasLink("74.73.139.233:7881"));
 		assertTrue(clientThreeNeighbors.distanceVectorHasWeight(neighbor1,
 				Double.POSITIVE_INFINITY));
@@ -223,8 +225,8 @@ public class ClientTest {
 		/*
 		 * Reset clientThreeNeighbors
 		 */
-		clientThreeNeighbors.linkup("74.73.139.233", 7881, 1.4);
-		clientThreeNeighbors.linkup("74.73.139.228", 3131, 10.0);
+		clientThreeNeighbors.linkup("74.73.139.233", 7881, 1.4, true);
+		clientThreeNeighbors.linkup("74.73.139.228", 3131, 10.0, true);
 	}
 
 	@Test
@@ -238,18 +240,18 @@ public class ClientTest {
 		 * First test that a client can't linkup a link that isn't down yet or a
 		 * link that isn't in the client's distance vector
 		 */
-		assertFalse(clientThreeNeighbors.linkup(neighbor1, 7881, 10.3));
-		assertFalse(clientThreeNeighbors.linkup("74.73.139.553", 3, 9.1));
+		assertFalse(clientThreeNeighbors.linkup(neighbor1, 7881, 10.3, true));
+		assertFalse(clientThreeNeighbors.linkup("74.73.139.553", 3, 9.1, true));
 
 		/*
 		 * Next, test that a downed link can be linkup'd with a new weight, and
 		 * assert that the new weight is correct.
 		 */
 		assertTrue(clientThreeNeighbors.distanceVectorHasWeight(neighbor1, 1.4));
-		clientThreeNeighbors.linkdown("74.73.139.233", 7881);
+		clientThreeNeighbors.linkdown("74.73.139.233", 7881, true);
 		assertTrue(clientThreeNeighbors.distanceVectorHasWeight(neighbor1,
 				Double.POSITIVE_INFINITY));
-		assertTrue(clientThreeNeighbors.linkup("74.73.139.233", 7881, 8.911));
+		assertTrue(clientThreeNeighbors.linkup("74.73.139.233", 7881, 8.911, true));
 		assertTrue(clientThreeNeighbors.distanceVectorHasWeight(neighbor1,
 				8.911));
 
@@ -257,17 +259,17 @@ public class ClientTest {
 		 * Test that a client with no neighbors can't linkup a link, even after
 		 * it has been linked down, because it is not in the distance vector.
 		 */
-		clientNoNeighbors.linkdown("74.73.139.228", 3131);
-		assertFalse(clientNoNeighbors.linkup("74.73.139.228", 3131, 9.31));
+		clientNoNeighbors.linkdown("74.73.139.228", 3131, true);
+		assertFalse(clientNoNeighbors.linkup("74.73.139.228", 3131, 9.31, true));
 
 		/*
 		 * Reset client (and test that a link can be downed and upped more than
 		 * once):
 		 */
-		clientThreeNeighbors.linkdown("74.73.139.233", 7881);
+		clientThreeNeighbors.linkdown("74.73.139.233", 7881, true);
 		assertTrue(clientThreeNeighbors.distanceVectorHasWeight(neighbor1,
 				Double.POSITIVE_INFINITY));
-		assertTrue(clientThreeNeighbors.linkup("74.73.139.233", 7881, 1.4));
+		assertTrue(clientThreeNeighbors.linkup("74.73.139.233", 7881, 1.4, true));
 		assertTrue(clientThreeNeighbors.distanceVectorHasWeight(neighbor1, 1.4));
 	}
 
