@@ -251,7 +251,8 @@ public class ClientTest {
 		clientThreeNeighbors.linkdown("74.73.139.233", 7881, true);
 		assertTrue(clientThreeNeighbors.distanceVectorHasWeight(neighbor1,
 				Double.POSITIVE_INFINITY));
-		assertTrue(clientThreeNeighbors.linkup("74.73.139.233", 7881, 8.911, true));
+		assertTrue(clientThreeNeighbors.linkup("74.73.139.233", 7881, 8.911,
+				true));
 		assertTrue(clientThreeNeighbors.distanceVectorHasWeight(neighbor1,
 				8.911));
 
@@ -269,7 +270,8 @@ public class ClientTest {
 		clientThreeNeighbors.linkdown("74.73.139.233", 7881, true);
 		assertTrue(clientThreeNeighbors.distanceVectorHasWeight(neighbor1,
 				Double.POSITIVE_INFINITY));
-		assertTrue(clientThreeNeighbors.linkup("74.73.139.233", 7881, 1.4, true));
+		assertTrue(clientThreeNeighbors
+				.linkup("74.73.139.233", 7881, 1.4, true));
 		assertTrue(clientThreeNeighbors.distanceVectorHasWeight(neighbor1, 1.4));
 	}
 
@@ -487,6 +489,21 @@ public class ClientTest {
 		// Test that RT has correct nextHop and weights
 		assertEquals(neighbor3Entry[0], neighbor1);
 		assertTrue(Double.parseDouble(neighbor3Entry[1]) == 2.4);
+	}
+
+	@Test
+	public void testDVStringForRouteUpdate() {
+		assertEquals("0.0.0.0:4200=0.0~74.73.139.233:7881=1.4~",
+				clientNormal.createDVStringForRouteUpdate(clientNormal
+						.getDistanceVector().get(clientNormalID)));
+
+		String[] twoEntries = clientNormal
+				.createDVStringForRouteUpdate(clientNormal.getDistanceVector()
+						.get(clientNormalID)).split("~");
+		
+		assertTrue(twoEntries.length == 2);
+		assertEquals(twoEntries[0], "0.0.0.0:4200=0.0");
+		assertEquals(twoEntries[1], "74.73.139.233:7881=1.4");
 	}
 
 	@Test
