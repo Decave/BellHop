@@ -12,7 +12,7 @@ public class ClientReaderThread implements Runnable {
 	private Client mainClient;
 	private BufferedReader stdIn;
 	public static final Set<String> AVAILABLE_COMMANDS = new HashSet<String>(
-			Arrays.asList("linkdown", "linkup", "showrt", "close", "transfer"));
+			Arrays.asList("linkdown", "linkup", "showrt", "close", "transfer", "showdv"));
 	private static final String INVALID_COMMAND = "Invalid command, please "
 			+ "try again.";
 
@@ -76,10 +76,13 @@ public class ClientReaderThread implements Runnable {
 				} else if (commandWords[0].equals("close")) {
 					mainClient.close();
 					return true;
+				} else if (commandWords[0].equals("showdv")) {
+					mainClient.printLocalDistanceVector();
+					return true;
 				} else {
 					System.out.println(INVALID_COMMAND);
 					return false;
-				}
+				} 
 			} else if (commandWords.length == 2) {
 				/*
 				 * As of yet, no commands of length 2 are supported

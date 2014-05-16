@@ -49,7 +49,7 @@ public class Client {
 	private Map<String, byte[]> chunksReceived = new TreeMap<String, byte[]>();
 	private Map<String, ClientDatagramSender> senders = new TreeMap<String, ClientDatagramSender>();
 	private Map<String, Timer> timeoutTimers = new TreeMap<String, Timer>();
-	private Map<String, Timer> updateTimers = new TreeMap<String, Timer>();
+	private Timer updateTimer = new Timer("update");
 
 	/**
 	 * Constructor for Client object that sets isTest to false.
@@ -145,19 +145,20 @@ public class Client {
 					&& !neighbor.equals(localClientID)) {
 				Timer timeoutTimer = new Timer(neighbor);
 				TimerTask eraseLink = new ShutdownOldLinkTask(this, neighbor);
-				timeoutTimer.schedule(eraseLink, (long) 10 * 10 * this.timeout,
-						(long) 3 * 10 * 10 * timeout);
+				timeoutTimer.schedule(eraseLink, (long) 3000 * this.timeout,
+						(long) 3000 * timeout);
 				timeoutTimers.put(neighbor, timeoutTimer);
 
-				Timer updateTimer = new Timer();
-				TimerTask sendRouteUpdate = new SendNeighborRouteUpdateTask(
-						this);
-				updateTimer.schedule(sendRouteUpdate, (long) 10 * 10
-						* this.timeout, (long) 10 * 10 * this.timeout);
-				updateTimers.put(neighbor, updateTimer);
 			}
+
+			TimerTask sendRouteUpdate = new SendNeighborRouteUpdateTask(this);
+			updateTimer.schedule(sendRouteUpdate, (long) 1000 * this.timeout,
+					(long) 1000 * this.timeout);
+
 		}
 		distanceVector.get(localClientID).put(localClientID, 0.0);
+		ClientDatagramSender helper = new ClientDatagramSender(localClientID);
+		senders.put(localClientID, helper);
 
 		return this.distanceVector;
 	}
@@ -231,8 +232,7 @@ public class Client {
 			String[] oldRoutingEntry = new String[2];
 			oldRoutingEntry = routingTable.get(entry);
 
-			if (oldRoutingEntry[0].equals(newDVSender)
-					|| weightToSenderToEntry <= localWeightToEntry) {
+			if ((oldRoutingEntry[0].equals(newDVSender) || weightToSenderToEntry <= localWeightToEntry)) {
 				String[] newRoutingEntry = new String[2];
 				newRoutingEntry[0] = newDVSender;
 				newRoutingEntry[1] = weightToSenderToEntry.toString();
@@ -258,6 +258,9 @@ public class Client {
 		Double weightToNeighborToDestination;
 
 		for (String neighbor : neighbors) {
+			if (neighbor.equals(localClientID)) {
+				continue;
+			}
 			localWeightToDestination = distanceVector.get(localClientID).get(
 					destination);
 			localWeightToNeighbor = distanceVector.get(localClientID).get(
@@ -274,8 +277,11 @@ public class Client {
 				distanceVector.get(localClientID).put(destination,
 						weightToNeighborToDestination);
 
-				routingTable.put(destination, newRoutingEntry);
-
+				if (neighbor.equals(localClientID)
+						&& !destination.equals(localClientID)) {
+				} else {
+					routingTable.put(destination, newRoutingEntry);
+				}
 				/*
 				 * For each destination that uses neighbor as a nextHop, we need
 				 * to update the weight to that destination to include the new
@@ -292,8 +298,13 @@ public class Client {
 					evenNewerRoutingEntry[0] = neighbor;
 					evenNewerRoutingEntry[1] = newCascadedWeight.toString();
 
-					routingTable
-							.put(previousDestination, evenNewerRoutingEntry);
+					if (!previousDestination.equals(localClientID)
+							&& neighbor.equals(localClientID)) {
+
+					} else {
+						routingTable.put(previousDestination,
+								evenNewerRoutingEntry);
+					}
 				}
 			}
 		}
@@ -389,12 +400,16 @@ public class Client {
 						String[] newRoutingEntry = new String[2];
 						newRoutingEntry[0] = newDVSender;
 						newRoutingEntry[1] = weightFromUsToNewEntry.toString();
+						if (localClientID.equals(newDVSender)
+								&& !currentEntry.equals(localClientID)) {
+							continue;
+						}
 						routingTable.put(entry, newRoutingEntry);
 					} else if (currentEntry.equals(newDVSender)) {
 						/*
 						 * Skip iteration if we are looking at the sender's DV.
 						 * It should not change because it is assumed that the
-						 * DV received in __ROUTE-UPDATE__ is the most
+						 * DV received in __ROUTEUPDATE__ is the most
 						 * up-to-date.
 						 */
 						continue;
@@ -436,7 +451,7 @@ public class Client {
 		 * neighbor is the weight given in the distance vector for our client.
 		 * Remark that at this point, we expect each neighbor's DV to have
 		 * weights of infinity, so we only use the weights from our DV. When we
-		 * later get ROUTE_UPDATE commands, we'll update our routing table from
+		 * later get ROUTEUPDATE commands, we'll update our routing table from
 		 * all the DVs.
 		 */
 		String[] tableEntry;
@@ -493,25 +508,27 @@ public class Client {
 				socket.receive(packet);
 
 				String fullMessage = new String(packet.getData(), 0,
-						packet.getLength()).trim();
+						packet.getLength());
 
 				String[] headerAndMessage = fullMessage.split("#");
-				String header = headerAndMessage[0];
-				String message = headerAndMessage[1];
-				String messageAndPath[] = message.split("&");
-				String chunk = messageAndPath[0];
 
 				System.out.println("Received packet! Processing...");
 
-				String[] headerVals = header.split("|");
+				String header = headerAndMessage[0];
 
-				if (headerVals[0].equals("__ROUTE-UPDATE__")) {
+				String[] headerVals = header.split("%");
+				headerVals[0] = headerVals[0].toLowerCase();
+
+				if (headerVals[0].contains("routeupdate")) {
 					/*
-					 * If the received message if a __ROUTE-UPDATE__ message,
+					 * If the received message if a __ROUTEUPDATE__ message,
 					 * update your Distance Vector and routing tables, and send
 					 * a route update to your neighbors.
 					 */
+					System.out.println("Received a __ROUTEUPDATE__ message");
+					String message = headerAndMessage[1];
 					String source = headerVals[2];
+
 					Map<String, Double> otherDV = client
 							.getDVFromRouteUpdateMessage(message);
 
@@ -519,10 +536,11 @@ public class Client {
 					client.updateDistanceVectorAndRoutingTableFromOtherDistanceVector(
 							source, otherDV);
 
-					// Send __ROUTE-UPDATE__ message to neighbors
+					// Send __ROUTEUPDATE__ message to neighbors
 					client.sendRouteUpdates();
 
-				} else if (headerVals[0].equals("__TRANSFER__")) {
+				} else if (headerVals[0].contains("transfer")) {
+					System.out.println("Received a __TRANSFER__ message");
 					/*
 					 * Otherwise, if message is a __TRANSFER__ message, then add
 					 * ourselves to the current path, and check if we are the
@@ -530,10 +548,14 @@ public class Client {
 					 * perform chunk logic. Otherwise, forward the message on to
 					 * the intended recipient.
 					 */
+
 					String intendedRecipient = headerVals[1];
+					String message = headerAndMessage[2];
 					int chunkSequence = Integer.parseInt(headerVals[4]);
 
 					if (intendedRecipient.equals(client.getLocalClientID())) {
+						System.out.println(message);
+
 						/*
 						 * If we are the final recipient, the file contents are
 						 * for us. If this completes the chunk we're waiting for
@@ -545,9 +567,12 @@ public class Client {
 						System.out.println("Received __TRANSFER__ message as "
 								+ "intended recipient. Printing status "
 								+ "message.");
+						String chunkAndPath[] = message.split("=");
+						String chunk = chunkAndPath[0];
+
 						client.printStatusMessageFromTransfer(message);
 						String sender = client.updateChunkReceived(message,
-								--chunkSequence);
+								chunkSequence - 1);
 						boolean[] chunkReceived = client.getChunkTracker().get(
 								sender);
 
@@ -567,35 +592,53 @@ public class Client {
 							}
 
 							String chunkName = sender + "_chunk";
-							fos = new FileOutputStream(chunkName);
+							File chunkFile = new File(chunkName);
+							fos = new FileOutputStream(chunkFile);
 							fos.write(fullChunk.getBytes());
 							fos.close();
 
 							System.out.println("You have succesfully received "
 									+ "and saved chunk " + chunkName + ".");
-						} else if (chunkReceived[0] || chunkReceived[1]) {
-							System.out.println("I already have " + sender
-									+ "'s" + chunkSequence
-									+ "th part of this chunk."
-									+ " Ignoring packet.");
+						} else {
+							System.out.println("Still waiting on the "
+									+ "other chunk.");
 						}
 
 					} else {
 						client.forwardTransferMessage(intendedRecipient,
 								message, chunkSequence);
 					}
-				} else if (headerVals[0].equals("__LINK-DOWN__")) {
+				} else if (headerVals[0].contains("linkdown")) {
+					System.out.println("Received a __LINKDOWN__ message");
 					String neighbor = headerVals[1];
 					String[] neighborArgs = neighbor.split(":");
+					System.out.println("Linking down from " + neighbor);
 					client.linkdown(neighborArgs[0],
 							Integer.parseInt(neighborArgs[1]), true);
-				} else if (headerVals[0].equals("__LINK-UP__")) {
+					if (client.getDistanceVector()
+							.get(client.getLocalClientID()).get(neighbor) == Double.POSITIVE_INFINITY) {
+						System.out.println("You are now disconnected from "
+								+ neighbor);
+					} else {
+						System.out
+								.println("There was a problem linking down from "
+										+ neighbor);
+					}
+				} else if (headerVals[0].contains("linkup")) {
+					System.out.println("Received a __LINKUP__ message");
 					String neighbor = headerVals[1];
 					Double newWeight = Double.parseDouble(headerVals[2]);
 
 					String[] neighborArgs = neighbor.split(":");
+
+					System.out.println("Trying to relink with " + neighbor);
 					client.linkup(neighborArgs[0],
 							Integer.parseInt(neighborArgs[1]), newWeight, true);
+					if (client.getDistanceVector()
+							.get(client.getLocalClientID()).get(neighbor) != Double.POSITIVE_INFINITY) {
+						System.out.println("You have been reconnected to "
+								+ neighbor + "!");
+					}
 				}
 			}
 
@@ -615,8 +658,8 @@ public class Client {
 	 */
 	public String createTransferStringHeader(String intendedRecipient,
 			String destination, int chunkSequence) {
-		String retStr = "__TRANSFER__" + "|" + intendedRecipient + "|"
-				+ destination + "|" + localClientID + "|" + chunkSequence + "#";
+		String retStr = "__TRANSFER__" + "%" + intendedRecipient + "%"
+				+ destination + "%" + localClientID + "%" + chunkSequence + "#";
 
 		return retStr;
 	}
@@ -626,7 +669,7 @@ public class Client {
 	 * will be sent in the Datagram.
 	 */
 	public String createRouteUpdateStringHeader(String destination) {
-		String retStr = "__ROUTE-UPDATE__" + "|" + destination + "|"
+		String retStr = "__ROUTEUPDATE__" + "%" + destination + "%"
 				+ localClientID + "#";
 
 		return retStr;
@@ -634,8 +677,8 @@ public class Client {
 
 	/**
 	 * Take the local distance vector, and transform it into a string to be
-	 * passed into a __ROUTE-UPDATE__ message. Entries are separated by the "^"
-	 * character, and an entry is separated from its weight by the "_"
+	 * passed into a __ROUTEUPDATE__ message. Entries are separated by the "~"
+	 * character, and an entry is separated from its weight by the "="
 	 * character.
 	 * 
 	 * @return String version of Distance Vector
@@ -644,14 +687,14 @@ public class Client {
 		String retStr = "";
 
 		for (String entry : dv.keySet()) {
-			retStr += "^" + entry + "_" + dv.get(entry);
+			retStr += entry + "=" + dv.get(entry) + "~";
 		}
 
 		return retStr;
 	}
 
 	/**
-	 * Given the body of a message from a __ROUTE-UPDATE__ message, extract the
+	 * Given the body of a message from a __ROUTEUPDATE__ message, extract the
 	 * new distance vector and transform it into a Map.
 	 * 
 	 * @param message
@@ -660,9 +703,10 @@ public class Client {
 	public Map<String, Double> getDVFromRouteUpdateMessage(String message) {
 		Map<String, Double> newDV = new TreeMap<String, Double>();
 
-		String[] entries = message.split("^");
+		String[] entries = message.split("~");
 		for (String pairs : entries) {
-			String[] pair = pairs.split("_");
+			System.out.println(pairs);
+			String[] pair = pairs.split("=");
 			String entry = pair[0];
 			Double weight = Double.parseDouble(pair[1]);
 
@@ -738,11 +782,6 @@ public class Client {
 				timeoutTimers.remove(ipPort);
 			}
 
-			if (updateTimers.keySet().contains(ipPort)) {
-				updateTimers.get(ipPort).cancel();
-				updateTimers.remove(ipPort);
-			}
-
 			if (!this.distanceVector.containsKey(ipPort)) {
 				return false;
 			}
@@ -792,16 +831,9 @@ public class Client {
 				}
 				Timer timeoutTimer = new Timer(ipPort);
 				TimerTask eraseLink = new ShutdownOldLinkTask(this, ipPort);
-				timeoutTimer.schedule(eraseLink, (long) 10 * 10 * this.timeout,
-						(long) 3 * 10 * 10 * timeout);
+				timeoutTimer.schedule(eraseLink, (long) 3000 * this.timeout,
+						(long) 3000 * timeout);
 				timeoutTimers.put(ipPort, timeoutTimer);
-
-				Timer updateTimer = new Timer();
-				TimerTask sendRouteUpdate = new SendNeighborRouteUpdateTask(
-						this);
-				updateTimer.schedule(sendRouteUpdate, (long) 10 * 10
-						* this.timeout, (long) 10 * 10 * this.timeout);
-				updateTimers.put(ipPort, updateTimer);
 
 				neighbors.add(ipPort);
 				this.distanceVector.get(localClientID).put(ipPort, weight);
@@ -859,7 +891,7 @@ public class Client {
 	}
 
 	public String updateChunkReceived(String message, int chunkNumber) {
-		String[] chunkAndPath = message.split("&");
+		String[] chunkAndPath = message.split("=");
 
 		String[] paths = chunkAndPath[1].split("@");
 
@@ -881,7 +913,7 @@ public class Client {
 	}
 
 	public String getStatusMessageFromTransfer(String message) {
-		String[] chunkAndPath = message.split("&");
+		String[] chunkAndPath = message.split("=");
 
 		String[] paths = chunkAndPath[1].split("@");
 
@@ -917,6 +949,12 @@ public class Client {
 					+ "that does not exist: " + destination);
 		}
 
+		if (!routingTable.keySet().contains(destination)) {
+			System.err.println(destination + " is not a destination in "
+					+ "your routing table. Try another command.");
+			return;
+		}
+
 		String[] routingEntry = new String[2];
 		routingEntry = routingTable.get(destination);
 
@@ -925,7 +963,7 @@ public class Client {
 		String message = createTransferStringHeader(destination, nextHop,
 				sequenceNumber);
 
-		message += chunk.toString() + "&";
+		message += chunk.toString() + "=";
 
 		message += localClientID;
 
@@ -978,11 +1016,11 @@ public class Client {
 	}
 
 	/**
-	 * Send a __ROUTE-UPDATE__ message to each neighbor, with Poison Reverse
+	 * Send a __ROUTEUPDATE__ message to each neighbor, with Poison Reverse
 	 * being used in the Distance Vectors that are sent.
 	 */
 	public void sendRouteUpdates() {
-		System.out.println("Sending __ROUTE-UPDATE__ messages.");
+		System.out.println("Sending __ROUTEUPDATE__ messages.");
 
 		for (String neighbor : neighbors) {
 			if (distanceVector.get(localClientID).get(neighbor) == Double.POSITIVE_INFINITY) {
@@ -991,18 +1029,14 @@ public class Client {
 				/*
 				 * For each neighbor whose link is up, get a deeply copied,
 				 * Poison-Reverse'd distance vector, create a new
-				 * __ROUTE-UPDATE__ message, and reset all updateTimers
+				 * __ROUTEUPDATE__ message, and reset all updateTimers
 				 */
-
-				Timer updateTimer = new Timer();
+				updateTimer.cancel();
+				updateTimer = new Timer();
 				TimerTask sendRouteUpdate = new SendNeighborRouteUpdateTask(
 						this);
-				updateTimer.schedule(sendRouteUpdate, (long) 10 * 10
-						* this.timeout, (long) 10 * 10 * this.timeout);
-				if (updateTimers.keySet().contains(neighbor)) {
-					updateTimers.get(neighbor).cancel();
-				}
-				updateTimers.put(neighbor, updateTimer);
+				updateTimer.schedule(sendRouteUpdate, (long) 1000
+						* this.timeout, (long) 1000 * this.timeout);
 
 				Map<String, Double> tempDV = poisonReversedDistanceVector(neighbor);
 
@@ -1013,7 +1047,7 @@ public class Client {
 				ClientDatagramSender sender = senders.get(neighbor);
 				sender.sendPacketToNeighbor(message.getBytes());
 
-				System.out.println("Sending __ROUTE-UPDATE__ message to "
+				System.out.println("Sending __ROUTEUPDATE__ message to "
 						+ neighbor + " at " + new Date() + ".");
 			}
 		}
@@ -1027,9 +1061,9 @@ public class Client {
 	 * @param recipient
 	 */
 	public void sendLinkDownMessage(String recipient) {
-		System.out.println("Sending __LINK-DOWN__ message to " + recipient);
+		System.out.println("Sending __LINKDOWN__ message to " + recipient);
 
-		String linkDownMessage = "__LINK-DOWN__" + "|" + localClientID;
+		String linkDownMessage = "__LINKDOWN__" + "%" + localClientID + "#";
 
 		ClientDatagramSender sender = senders.get(recipient);
 		sender.sendPacketToNeighbor(linkDownMessage.getBytes());
@@ -1043,10 +1077,10 @@ public class Client {
 	 * @param weight
 	 */
 	public void sendLinkUp(String recipient, double weight) {
-		System.out.println("Sending __LINK-UP__ message to " + recipient);
+		System.out.println("Sending __LINKUP__ message to " + recipient);
 
-		String linkUpMessage = "__LINK-UP__" + "|" + localClientID + "|"
-				+ weight;
+		String linkUpMessage = "__LINKUP__" + "%" + localClientID + "%"
+				+ weight + "#";
 
 		ClientDatagramSender sender = senders.get(recipient);
 		sender.sendPacketToNeighbor(linkUpMessage.getBytes());
@@ -1119,14 +1153,7 @@ public class Client {
 	 * @param isTest
 	 */
 	private void constructBasicClient(String configFile, boolean isTest) {
-		try {
-			this.ipAddress = InetAddress.getLocalHost().getHostAddress();
-		} catch (UnknownHostException e) {
-			System.err.println("Your IP address could not be found. "
-					+ "Is your machine running any routing protocols?");
-			e.printStackTrace();
-			System.exit(1);
-		}
+		this.ipAddress = "0.0.0.0";
 
 		BufferedReader reader = null;
 		try {
